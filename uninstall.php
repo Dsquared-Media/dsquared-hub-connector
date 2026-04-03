@@ -13,19 +13,56 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
     exit;
 }
 
-// Remove plugin options
-delete_option( 'dhc_api_key' );
-delete_option( 'dhc_modules' );
-delete_option( 'dhc_subscription' );
-delete_option( 'dhc_activity_log' );
-delete_option( 'dhc_cwv_metrics' );
-delete_option( 'dhc_global_schemas' );
-delete_option( 'dhc_default_author' );
+// ── Remove plugin options ───────────────────────────────────
+$options = array(
+    // Core
+    'dhc_api_key',
+    'dhc_modules',
+    'dhc_subscription',
+    'dhc_activity_log',
+    'dhc_default_author',
 
-// Remove transients
+    // v1.0 Modules
+    'dhc_global_schemas',
+    'dhc_cwv_metrics',
+
+    // v1.5 Modules
+    'dhc_ai_business_profile',
+    'dhc_indexnow_key',
+    'dhc_content_decay_results',
+    'dhc_lead_stats',
+    'dhc_lead_monthly_count',
+);
+
+foreach ( $options as $option ) {
+    delete_option( $option );
+}
+
+// ── Remove transients ───────────────────────────────────────
 delete_transient( 'dhc_subscription_cache' );
+delete_transient( 'dhc_update_cache' );
 
-// Remove per-post meta (schema and SEO meta)
+// ── Remove per-post meta ────────────────────────────────────
 global $wpdb;
-$wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key IN ('_dhc_schema_markup', '_dhc_seo_meta', '_dhc_source', '_dhc_created_at')" );
 $wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key LIKE '_dhc\_%'" );
+
+// ── Remove scheduled cron events ────────────────────────────
+$crons = array( 'dhc_content_decay_scan', 'dhc_monthly_lead_reset' );
+foreach ( $crons as $hook ) {
+    $timestamp = wp_next_scheduled( $hook );
+    if ( $timestamp ) {
+        wp_unschedule_event( $timestamp, $hook );
+    }
+}
+
+// ── Remove generated files ──────────────────────────────────
+$files_to_remove = array(
+    ABSPATH . 'llms.txt',
+    ABSPATH . 'llms-full.txt',
+);
+
+foreach ( $files_to_remove as $file ) {
+    if ( file_exists( $file ) ) {
+        @unlink( $file );
+    }
+}

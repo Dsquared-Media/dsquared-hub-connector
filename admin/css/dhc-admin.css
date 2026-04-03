@@ -300,6 +300,27 @@
     text-decoration: underline;
 }
 
+.dhc-textarea {
+    resize: vertical;
+    min-height: 72px;
+    width: 100%;
+}
+
+.dhc-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.dhc-info-value a {
+    color: #5661ff;
+    text-decoration: none;
+    word-break: break-all;
+}
+.dhc-info-value a:hover {
+    text-decoration: underline;
+}
+
 .dhc-mono {
     font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
     font-size: 12px;
@@ -732,5 +753,20 @@
 
     .dhc-tabs {
         overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .dhc-tab {
+        flex: none;
+    }
+
+    .dhc-field-row {
+        grid-template-columns: 1fr;
+    }
+
+    .dhc-footer {
+        flex-direction: column;
+        gap: 6px;
+        text-align: center;
     }
 }

@@ -11,23 +11,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class DHC_API_Key {
 
-    /**
-     * Transient key for caching subscription data
-     */
+    /** @var string Transient key for caching subscription data */
     const CACHE_KEY = 'dhc_subscription_cache';
 
-    /**
-     * Cache duration in seconds (12 hours)
-     */
+    /** @var int Cache duration in seconds (12 hours) */
     const CACHE_DURATION = 43200;
 
     /**
-     * Module tier mapping
+     * Module tier mapping — defines which modules are available at each tier.
+     * Higher tiers inherit all modules from lower tiers.
      */
     const TIER_MODULES = array(
         'starter' => array( 'auto_post' ),
-        'growth'  => array( 'auto_post', 'schema', 'seo_meta' ),
-        'pro'     => array( 'auto_post', 'schema', 'seo_meta', 'site_health' ),
+        'growth'  => array( 'auto_post', 'schema', 'seo_meta', 'content_decay' ),
+        'pro'     => array( 'auto_post', 'schema', 'seo_meta', 'site_health', 'ai_discovery', 'content_decay', 'form_capture' ),
     );
 
     /**
@@ -45,7 +42,7 @@ class DHC_API_Key {
         if ( empty( $api_key ) ) {
             return array(
                 'valid'   => false,
-                'message' => 'No API key configured.',
+                'message' => esc_html__( 'No API key configured.', 'dsquared-hub-connector' ),
             );
         }
 
@@ -70,22 +67,21 @@ class DHC_API_Key {
         );
 
         if ( is_wp_error( $response ) ) {
-            // Network error — use cached data if available, otherwise return error
+            // Network error — use cached data if available
             $cached = get_option( 'dhc_subscription', array() );
             if ( ! empty( $cached['status'] ) && 'active' === $cached['status'] ) {
-                // Trust the last known good state during network issues
                 return array(
-                    'valid'        => true,
-                    'tier'         => $cached['tier'],
-                    'expires'      => $cached['expires'],
-                    'modules'      => self::get_tier_modules( $cached['tier'] ),
-                    'cached'       => true,
+                    'valid'         => true,
+                    'tier'          => $cached['tier'],
+                    'expires'       => $cached['expires'],
+                    'modules'       => self::get_tier_modules( $cached['tier'] ),
+                    'cached'        => true,
                     'network_error' => true,
                 );
             }
             return array(
                 'valid'   => false,
-                'message' => 'Unable to reach Dsquared Hub. Please check your connection.',
+                'message' => esc_html__( 'Unable to reach Dsquared Hub. Please check your connection.', 'dsquared-hub-connector' ),
             );
         }
 
@@ -95,7 +91,7 @@ class DHC_API_Key {
         if ( 200 !== $code || empty( $body ) ) {
             return array(
                 'valid'   => false,
-                'message' => isset( $body['message'] ) ? $body['message'] : 'Invalid API key.',
+                'message' => isset( $body['message'] ) ? sanitize_text_field( $body['message'] ) : esc_html__( 'Invalid API key.', 'dsquared-hub-connector' ),
             );
         }
 
@@ -112,8 +108,8 @@ class DHC_API_Key {
         if ( ! empty( $subscription['expires'] ) ) {
             $expiry = strtotime( $subscription['expires'] );
             if ( $expiry && $expiry < time() ) {
-                $subscription['valid'] = false;
-                $subscription['message'] = 'Your Dsquared Hub subscription has expired. Features are currently disabled but your website is unaffected. Renew your subscription to restore full functionality.';
+                $subscription['valid']   = false;
+                $subscription['message'] = esc_html__( 'Your Dsquared Hub subscription has expired. Features are currently disabled but your website is unaffected. Renew your subscription to restore full functionality.', 'dsquared-hub-connector' );
                 $subscription['expired'] = true;
             }
         }
@@ -121,7 +117,7 @@ class DHC_API_Key {
         // Cache the result
         set_transient( self::CACHE_KEY, $subscription, self::CACHE_DURATION );
 
-        // Also persist to options for offline fallback
+        // Persist to options for offline fallback
         update_option( 'dhc_subscription', array(
             'status'  => $subscription['valid'] ? 'active' : 'inactive',
             'tier'    => $subscription['tier'],
@@ -173,9 +169,9 @@ class DHC_API_Key {
      */
     public static function get_tier_label( $tier ) {
         $labels = array(
-            'starter' => 'Starter',
-            'growth'  => 'Growth',
-            'pro'     => 'Professional',
+            'starter' => __( 'Starter', 'dsquared-hub-connector' ),
+            'growth'  => __( 'Growth', 'dsquared-hub-connector' ),
+            'pro'     => __( 'Professional', 'dsquared-hub-connector' ),
         );
         return $labels[ strtolower( $tier ) ] ?? ucfirst( $tier );
     }
@@ -199,7 +195,7 @@ class DHC_API_Key {
         if ( empty( $api_key ) ) {
             return new WP_Error(
                 'dhc_missing_key',
-                'API key is required.',
+                esc_html__( 'API key is required.', 'dsquared-hub-connector' ),
                 array( 'status' => 401 )
             );
         }
@@ -209,7 +205,7 @@ class DHC_API_Key {
         if ( empty( $stored_key ) || ! hash_equals( $stored_key, $api_key ) ) {
             return new WP_Error(
                 'dhc_invalid_key',
-                'Invalid API key.',
+                esc_html__( 'Invalid API key.', 'dsquared-hub-connector' ),
                 array( 'status' => 403 )
             );
         }
@@ -219,7 +215,7 @@ class DHC_API_Key {
         if ( ! $subscription['valid'] ) {
             return new WP_Error(
                 'dhc_subscription_inactive',
-                $subscription['message'] ?? 'Subscription is not active.',
+                $subscription['message'] ?? esc_html__( 'Subscription is not active.', 'dsquared-hub-connector' ),
                 array( 'status' => 403 )
             );
         }

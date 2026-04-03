@@ -11,9 +11,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class DHC_Core {
 
-    /**
-     * Singleton instance
-     */
+    /** @var self|null Singleton instance */
     private static $instance = null;
 
     /**
@@ -38,6 +36,12 @@ class DHC_Core {
             DHC_Admin::init();
         }
 
+        // Self-hosted auto-updater
+        DHC_Updater::init();
+
+        // Privacy policy integration
+        DHC_Privacy::init();
+
         // Initialize active modules (only if subscription is valid)
         $this->init_modules();
 
@@ -49,7 +53,9 @@ class DHC_Core {
      * Initialize modules based on subscription and settings
      */
     private function init_modules() {
-        // Schema Injector — always hooks into wp_head if available
+        // v1.0 Modules ────────────────────────────────────────────
+
+        // Schema Injector — hooks into wp_head if available
         if ( DHC_API_Key::is_module_available( 'schema' ) ) {
             DHC_Schema::init();
         }
@@ -65,13 +71,29 @@ class DHC_Core {
         }
 
         // Auto-Post doesn't need frontend init — it's REST-only
+
+        // v1.5 Modules ────────────────────────────────────────────
+
+        // AI Discovery — rewrite rules for llms.txt, schema injection, IndexNow
+        if ( DHC_API_Key::is_module_available( 'ai_discovery' ) ) {
+            DHC_AI_Discovery::init();
+        }
+
+        // Content Decay — cron-based post freshness scanning
+        if ( DHC_API_Key::is_module_available( 'content_decay' ) ) {
+            DHC_Content_Decay::init();
+        }
+
+        // Form Capture — hooks into form plugins for lead capture
+        if ( DHC_API_Key::is_module_available( 'form_capture' ) ) {
+            DHC_Form_Capture::init();
+        }
     }
 
     /**
      * Show admin notices for subscription status
      */
     public function subscription_notices() {
-        // Only show on plugin pages or dashboard
         $screen = get_current_screen();
         if ( ! $screen ) {
             return;
@@ -88,8 +110,8 @@ class DHC_Core {
         if ( empty( $api_key ) ) {
             if ( 'toplevel_page_dsquared-hub' !== $screen->id ) {
                 echo '<div class="notice notice-info is-dismissible">';
-                echo '<p><strong>Dsquared Hub Connector</strong> — ';
-                echo 'Please <a href="' . esc_url( admin_url( 'admin.php?page=dsquared-hub' ) ) . '">enter your API key</a> to activate the plugin.</p>';
+                echo '<p><strong>' . esc_html__( 'Dsquared Hub Connector', 'dsquared-hub-connector' ) . '</strong> — ';
+                echo esc_html__( 'Please', 'dsquared-hub-connector' ) . ' <a href="' . esc_url( admin_url( 'admin.php?page=dsquared-hub' ) ) . '">' . esc_html__( 'enter your API key', 'dsquared-hub-connector' ) . '</a> ' . esc_html__( 'to activate the plugin.', 'dsquared-hub-connector' ) . '</p>';
                 echo '</div>';
             }
             return;
@@ -100,14 +122,13 @@ class DHC_Core {
 
         if ( ! empty( $subscription['expired'] ) ) {
             echo '<div class="notice notice-warning">';
-            echo '<p><strong>Dsquared Hub Connector</strong> — Your subscription has expired. ';
-            echo 'All Hub features are currently disabled, but <strong>your website is completely unaffected</strong>. ';
-            echo 'Keeping an active subscription is suggested to maintain full functionality. ';
-            echo '<a href="https://hub.dsquaredmedia.net/dashboard.html#account" target="_blank">Renew your subscription</a></p>';
+            echo '<p><strong>' . esc_html__( 'Dsquared Hub Connector', 'dsquared-hub-connector' ) . '</strong> — ';
+            echo esc_html__( 'Your subscription has expired. All Hub features are currently disabled, but your website is completely unaffected. Keeping an active subscription is suggested to maintain full functionality.', 'dsquared-hub-connector' );
+            echo ' <a href="https://hub.dsquaredmedia.net/dashboard.html#account" target="_blank">' . esc_html__( 'Renew your subscription', 'dsquared-hub-connector' ) . '</a></p>';
             echo '</div>';
         } elseif ( ! $subscription['valid'] && empty( $subscription['expired'] ) ) {
             echo '<div class="notice notice-error">';
-            echo '<p><strong>Dsquared Hub Connector</strong> — ' . esc_html( $subscription['message'] ?? 'Unable to validate API key.' ) . '</p>';
+            echo '<p><strong>' . esc_html__( 'Dsquared Hub Connector', 'dsquared-hub-connector' ) . '</strong> — ' . esc_html( $subscription['message'] ?? __( 'Unable to validate API key.', 'dsquared-hub-connector' ) ) . '</p>';
             echo '</div>';
         }
     }

@@ -1,8 +1,8 @@
 # Dsquared Hub Connector
 
-**Connect your WordPress site to the Dsquared Media Hub** — auto-post drafts, inject schema markup, sync SEO meta, and monitor site health. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
+**Connect your WordPress site to the Dsquared Media Hub** — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, make your business visible to AI search, detect stale content, and capture leads with built-in spam filtering. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
 
-![Version](https://img.shields.io/badge/version-1.0.0-5661FF)
+![Version](https://img.shields.io/badge/version-1.5.0-5661FF)
 ![WordPress](https://img.shields.io/badge/WordPress-5.8%2B-21759b)
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-777BB4)
 ![License](https://img.shields.io/badge/license-GPL--2.0-green)
@@ -11,16 +11,28 @@
 
 ## Overview
 
-The Dsquared Hub Connector is a lightweight WordPress plugin that bridges your WordPress site with the [Dsquared Media Hub](https://hub.dsquaredmedia.net). It enables seamless content publishing, SEO optimization, and performance monitoring — all controlled from the Hub dashboard.
+The Dsquared Hub Connector is a lightweight WordPress plugin that bridges your WordPress site with the [Dsquared Media Hub](https://hub.dsquaredmedia.net). It enables seamless content publishing, SEO optimization, AI search visibility, lead capture, and performance monitoring — all controlled from the Hub dashboard.
 
-### Key Features
+---
+
+## Modules
+
+### v1.0 — Core Modules
 
 | Module | Description | Tier |
 |--------|-------------|------|
-| **Auto-Post to Draft** | Receive blog content from the Hub and create WordPress draft posts | Starter+ |
-| **Schema Injector** | Push JSON-LD structured data from the Hub's Schema Generator | Growth+ |
-| **SEO Meta Sync** | Sync meta titles, descriptions, and OG data (Yoast/RankMath compatible) | Growth+ |
-| **Site Health Monitor** | Collect real-user Core Web Vitals and report to the Hub | Pro |
+| **Auto-Post to Draft** | Receive blog content from the Hub and create WordPress draft posts. Supports title, body, categories, tags, excerpts, and featured images. | Starter+ |
+| **Schema Injector** | Push JSON-LD structured data from the Hub's Schema Generator into page `<head>`. Supports per-post and site-wide schemas. | Growth+ |
+| **SEO Meta Sync** | Sync meta titles, descriptions, and OG data. Compatible with Yoast, Rank Math, AIOSEO, and SEOPress. Falls back to native meta if no SEO plugin detected. | Growth+ |
+| **Site Health Monitor** | Collect real-user Core Web Vitals (LCP, CLS, INP, TTFB, FCP) via a lightweight ~2KB frontend script and report to the Hub. | Pro |
+
+### v1.5 — New Modules
+
+| Module | Description | Tier |
+|--------|-------------|------|
+| **AI Discovery** | Generate an AI-readable business profile (`llms.txt`, `llms-full.txt`), inject LocalBusiness/Service schemas, and ping IndexNow (Bing/Yandex) when content changes. Makes your business visible to ChatGPT, Gemini, Perplexity, Claude, and other AI platforms. | Pro |
+| **Content Decay Alerts** | Monitor published posts for freshness. Posts not updated in 6+ months are flagged yellow, 12+ months flagged red. Reports stale content to the Hub for review and refresh recommendations. | Growth+ |
+| **Form Submission Capture** | Hook into Contact Form 7, Gravity Forms, WPForms, Elementor Forms, and Ninja Forms. Built-in spam filtering (disposable emails, keyword blocking, velocity limiting, gibberish detection). Sends clean leads to the Hub pipeline — no personal data stored locally. | Pro |
 
 ---
 
@@ -28,9 +40,9 @@ The Dsquared Hub Connector is a lightweight WordPress plugin that bridges your W
 
 1. Download the plugin ZIP file or clone this repository
 2. Upload to `wp-content/plugins/dsquared-hub-connector/`
-3. Activate the plugin in WordPress Admin → Plugins
+3. Activate the plugin in WordPress Admin > Plugins
 4. Navigate to **Dsquared Hub** in the admin sidebar
-5. Enter your API key from [Hub → Account → API Keys](https://hub.dsquaredmedia.net/dashboard.html#account)
+5. Enter your API key from [Hub > Account > API Keys](https://hub.dsquaredmedia.net/dashboard.html#account)
 6. Enable the modules you want to use
 
 ---
@@ -50,8 +62,8 @@ This plugin is designed with a **zero-disruption guarantee**:
 | Tier | Modules Available |
 |------|-------------------|
 | **Starter** | Auto-Post to Draft |
-| **Growth** | Auto-Post, Schema Injector, SEO Meta Sync |
-| **Pro** | All modules |
+| **Growth** | Auto-Post, Schema Injector, SEO Meta Sync, Content Decay Alerts |
+| **Pro** | All modules including AI Discovery, Site Health Monitor, Form Capture |
 
 ---
 
@@ -59,66 +71,68 @@ This plugin is designed with a **zero-disruption guarantee**:
 
 All endpoints are available at `your-site.com/wp-json/dsquared-hub/v1/`
 
-### Status Check
-```
-GET /dsquared-hub/v1/status
-```
-Returns plugin version, connection status, and module availability. No authentication required.
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/status` | None | Plugin version, connection status, module availability |
+| POST | `/post` | API Key | Create a draft post from Hub content |
+| POST | `/schema` | API Key | Push schema markup to a post or site-wide |
+| POST | `/seo-meta` | API Key | Sync SEO meta data to a post |
+| POST | `/health` | None | Receive Core Web Vitals beacon data |
+| POST | `/ai-discovery` | API Key | Push business profile for AI discovery |
+| GET | `/content-decay` | API Key | Trigger content decay scan and get results |
+| GET | `/leads` | API Key | Get lead capture statistics |
 
-### Auto-Post to Draft
-```
-POST /dsquared-hub/v1/post
-Header: X-DHC-API-Key: your-api-key
-```
+Authentication is via the `X-DHC-API-Key` header.
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `title` | string | Yes | Post title |
-| `content` | string | Yes | Post body (HTML) |
-| `excerpt` | string | No | Post excerpt |
-| `categories` | array | No | Category names (created if they don't exist) |
-| `tags` | array | No | Tag names |
-| `featured_image_url` | string | No | URL to download as featured image |
-| `meta` | object | No | Custom meta fields (prefixed with `_dhc_`) |
+---
 
-**Response:** Post is created as a **draft** — never auto-published.
+## AI Discovery
 
-### Schema Injector
-```
-POST /dsquared-hub/v1/schema
-Header: X-DHC-API-Key: your-api-key
-```
+The AI Discovery module makes your business visible to AI search platforms by:
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `schema` | object/string | Yes | JSON-LD schema markup |
-| `post_id` | integer | No | Target post ID |
-| `url` | string | No | Target page URL (resolved to post ID) |
-| `schema_type` | string | No | Schema type identifier (e.g., "Article", "LocalBusiness") |
+1. **Generating `llms.txt` and `llms-full.txt`** — Plain-text business summaries served at your site root, following the emerging LLM discovery standard
+2. **Injecting LocalBusiness + Service schemas** — Structured data that AI engines parse to understand what your business offers
+3. **Pinging IndexNow** — Notifies Bing and Yandex instantly when content changes, rather than waiting for crawlers
+4. **Building a machine-readable business profile** — Services, service areas, hours, FAQs, and contact info formatted for AI consumption
 
-### SEO Meta Sync
-```
-POST /dsquared-hub/v1/seo-meta
-Header: X-DHC-API-Key: your-api-key
-```
+### Setup
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `post_id` | integer | No | Target post ID |
-| `url` | string | No | Target page URL |
-| `meta_title` | string | No | SEO title |
-| `meta_description` | string | No | Meta description |
-| `focus_keyword` | string | No | Focus keyword |
-| `og_title` | string | No | Open Graph title |
-| `og_description` | string | No | Open Graph description |
+1. Go to the **AI Discovery** tab in the plugin settings
+2. Fill out your business information (name, services, areas, hours)
+3. Click **Save & Generate Files**
+4. The plugin creates `llms.txt`, `llms-full.txt`, and injects schemas automatically
 
-Compatible with: **Yoast SEO**, **Rank Math**, **All in One SEO**, **SEOPress**. Falls back to native meta output if no SEO plugin is detected.
+---
 
-### Site Health Data
-```
-POST /dsquared-hub/v1/health
-```
-Receives Core Web Vitals data from the frontend script. No API key required (data comes from site visitors).
+## Form Submission Capture — Spam Filtering
+
+The Form Capture module includes a multi-layer spam filter that runs before any lead is sent to the Hub:
+
+| Filter | What It Catches | Method |
+|--------|----------------|--------|
+| **Disposable email detection** | Throwaway emails | Checks against ~3,000 known disposable domains |
+| **Content pattern matching** | Spam phrases | Regex for casino, pharma, "buy now," Cyrillic spam |
+| **Submission velocity** | Bot floods | Rate limiting per IP (max 3 submissions per 5 minutes) |
+| **Gibberish detection** | Nonsense entries | Checks consonant-to-vowel ratio in text fields |
+
+**Important:** The plugin does not store form data locally. It intercepts submissions, filters spam, and sends only clean leads to the Hub. The actual form submission still goes through normally to wherever the site owner has it configured.
+
+---
+
+## Auto-Updates
+
+The plugin includes a self-hosted auto-updater that checks `hub.dsquaredmedia.net` for new versions. Updates appear in the WordPress admin just like any other plugin. The update check is cached for 12 hours and requires a valid API key.
+
+---
+
+## Privacy
+
+The plugin integrates with WordPress's privacy policy page generator and includes GDPR-compliant data handling:
+
+- **Site Health Monitor** collects anonymous performance metrics (no PII)
+- **Form Capture** does not store personal data locally — only sends sanitized lead records to the Hub
+- **AI Discovery** publishes only business information the site owner explicitly provides
+- Full privacy policy text is auto-suggested for the site's privacy policy page
 
 ---
 
@@ -135,59 +149,37 @@ If no SEO plugin is detected, the plugin outputs meta tags directly in `wp_head`
 
 ---
 
-## Site Health Monitor
-
-The Site Health module injects a lightweight (~2KB) JavaScript snippet that collects:
-
-- **LCP** — Largest Contentful Paint
-- **FID** — First Input Delay
-- **CLS** — Cumulative Layout Shift
-- **INP** — Interaction to Next Paint
-- **TTFB** — Time to First Byte
-- **FCP** — First Contentful Paint
-
-Data is collected from real users (not synthetic tests) and reported as p75 values. The script:
-
-- Uses `PerformanceObserver` API (no dependencies)
-- Reports via `navigator.sendBeacon` for reliability
-- Excludes logged-in editors and admin users
-- Supports configurable sample rates for high-traffic sites
-
----
-
 ## File Structure
 
 ```
 dsquared-hub-connector/
-├── dsquared-hub-connector.php    # Main plugin file
+├── dsquared-hub-connector.php    # Main plugin bootstrap
 ├── uninstall.php                 # Clean removal
+├── readme.txt                    # WordPress.org format readme
+├── LICENSE                       # GPL v2
+├── CHANGELOG.md                  # Version history
 ├── README.md                     # This file
 ├── includes/
-│   ├── class-dhc-core.php        # Plugin controller (singleton)
-│   ├── class-dhc-api-key.php     # API key validation & subscription
+│   ├── class-dhc-core.php        # Singleton controller
+│   ├── class-dhc-api-key.php     # API key validation & tier mapping
 │   ├── class-dhc-rest.php        # REST API endpoint registration
 │   ├── class-dhc-admin.php       # Admin settings page
+│   ├── class-dhc-updater.php     # Self-hosted auto-updater
+│   ├── class-dhc-privacy.php     # Privacy policy integration
 │   └── modules/
-│       ├── class-dhc-auto-post.php   # Module 1: Auto-Post
-│       ├── class-dhc-schema.php      # Module 2: Schema Injector
-│       ├── class-dhc-seo-meta.php    # Module 3: SEO Meta Sync
-│       └── class-dhc-site-health.php # Module 4: Site Health
+│       ├── class-dhc-auto-post.php     # Module 1: Auto-Post to Draft
+│       ├── class-dhc-schema.php        # Module 2: Schema Injector
+│       ├── class-dhc-seo-meta.php      # Module 3: SEO Meta Sync
+│       ├── class-dhc-site-health.php   # Module 4: Site Health Monitor
+│       ├── class-dhc-ai-discovery.php  # Module 5: AI Discovery
+│       ├── class-dhc-content-decay.php # Module 6: Content Decay Alerts
+│       └── class-dhc-form-capture.php  # Module 7: Form Submission Capture
 ├── admin/
-│   ├── css/dhc-admin.css         # Admin styles (Hub design)
-│   └── js/dhc-admin.js           # Admin interactions
+│   ├── css/dhc-admin.css         # Admin styles (Hub design language)
+│   └── js/dhc-admin.js           # Admin JavaScript
 └── assets/
-    └── dhc-site-health.js        # Frontend CWV script
+    └── dhc-site-health.js        # Frontend CWV collection script
 ```
-
----
-
-## Future Roadmap
-
-| Version | Planned Modules |
-|---------|----------------|
-| **v1.5** | Form Submission Tracker, GA4 Event Tracker, Content Freshness Monitor |
-| **v2.0** | AI Citation Optimizer, Redirect Manager, White-Label Widget |
-| **v3.0** | WooCommerce Sync, Competitor Content Alerts, Conversion Attribution |
 
 ---
 

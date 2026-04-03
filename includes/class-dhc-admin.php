@@ -20,6 +20,7 @@ class DHC_Admin {
         add_action( 'wp_ajax_dhc_save_settings', array( __CLASS__, 'ajax_save_settings' ) );
         add_action( 'wp_ajax_dhc_validate_key', array( __CLASS__, 'ajax_validate_key' ) );
         add_action( 'wp_ajax_dhc_clear_activity_log', array( __CLASS__, 'ajax_clear_log' ) );
+        add_action( 'wp_ajax_dhc_save_ai_discovery', array( __CLASS__, 'ajax_save_ai_discovery' ) );
     }
 
     /**
@@ -27,8 +28,8 @@ class DHC_Admin {
      */
     public static function add_menu_page() {
         add_menu_page(
-            'Dsquared Hub',
-            'Dsquared Hub',
+            esc_html__( 'Dsquared Hub', 'dsquared-hub-connector' ),
+            esc_html__( 'Dsquared Hub', 'dsquared-hub-connector' ),
             'manage_options',
             'dsquared-hub',
             array( __CLASS__, 'render_page' ),
@@ -45,28 +46,10 @@ class DHC_Admin {
             return;
         }
 
-        wp_enqueue_style(
-            'dhc-admin',
-            DHC_PLUGIN_URL . 'admin/css/dhc-admin.css',
-            array(),
-            DHC_VERSION
-        );
+        wp_enqueue_style( 'dhc-admin', DHC_PLUGIN_URL . 'admin/css/dhc-admin.css', array(), DHC_VERSION );
+        wp_enqueue_style( 'dhc-google-fonts', 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap', array(), null );
 
-        // Load Plus Jakarta Sans
-        wp_enqueue_style(
-            'dhc-google-fonts',
-            'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap',
-            array(),
-            null
-        );
-
-        wp_enqueue_script(
-            'dhc-admin',
-            DHC_PLUGIN_URL . 'admin/js/dhc-admin.js',
-            array( 'jquery' ),
-            DHC_VERSION,
-            true
-        );
+        wp_enqueue_script( 'dhc-admin', DHC_PLUGIN_URL . 'admin/js/dhc-admin.js', array( 'jquery' ), DHC_VERSION, true );
 
         wp_localize_script( 'dhc-admin', 'dhcAdmin', array(
             'ajaxUrl' => admin_url( 'admin-ajax.php' ),
@@ -82,12 +65,10 @@ class DHC_Admin {
         $api_key      = get_option( 'dhc_api_key', '' );
         $modules      = get_option( 'dhc_modules', array() );
         $subscription = DHC_API_Key::validate();
-        $activity_log = get_option( 'dhc_activity_log', array() );
+        $activity_log = array_reverse( get_option( 'dhc_activity_log', array() ) );
         $cwv_metrics  = DHC_Site_Health::get_aggregated_metrics( 30 );
         $seo_plugin   = DHC_SEO_Meta::detect_seo_plugin();
-
-        // Reverse log so newest is first
-        $activity_log = array_reverse( $activity_log );
+        $ai_profile   = get_option( 'dhc_ai_business_profile', array() );
         ?>
         <div class="dhc-wrap">
             <!-- Header -->
@@ -101,7 +82,7 @@ class DHC_Admin {
                         </svg>
                     </div>
                     <div>
-                        <h1 class="dhc-title">Dsquared Hub Connector</h1>
+                        <h1 class="dhc-title"><?php esc_html_e( 'Dsquared Hub Connector', 'dsquared-hub-connector' ); ?></h1>
                         <span class="dhc-version">v<?php echo esc_html( DHC_VERSION ); ?></span>
                     </div>
                 </div>
@@ -109,20 +90,20 @@ class DHC_Admin {
                     <?php if ( ! empty( $subscription['valid'] ) ) : ?>
                         <span class="dhc-badge dhc-badge-success">
                             <span class="dhc-badge-dot"></span>
-                            Connected — <?php echo esc_html( DHC_API_Key::get_tier_label( $subscription['tier'] ?? '' ) ); ?>
+                            <?php echo esc_html__( 'Connected', 'dsquared-hub-connector' ) . ' — ' . esc_html( DHC_API_Key::get_tier_label( $subscription['tier'] ?? '' ) ); ?>
                         </span>
                     <?php elseif ( ! empty( $subscription['expired'] ) ) : ?>
                         <span class="dhc-badge dhc-badge-warning">
                             <span class="dhc-badge-dot"></span>
-                            Subscription Expired
+                            <?php esc_html_e( 'Subscription Expired', 'dsquared-hub-connector' ); ?>
                         </span>
                     <?php else : ?>
                         <span class="dhc-badge dhc-badge-inactive">
                             <span class="dhc-badge-dot"></span>
-                            Not Connected
+                            <?php esc_html_e( 'Not Connected', 'dsquared-hub-connector' ); ?>
                         </span>
                     <?php endif; ?>
-                    <a href="https://hub.dsquaredmedia.net" target="_blank" class="dhc-btn dhc-btn-outline">Open Hub</a>
+                    <a href="https://hub.dsquaredmedia.net" target="_blank" class="dhc-btn dhc-btn-outline"><?php esc_html_e( 'Open Hub', 'dsquared-hub-connector' ); ?></a>
                 </div>
             </div>
 
@@ -130,43 +111,44 @@ class DHC_Admin {
             <div class="dhc-notice dhc-notice-warning">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                 <div>
-                    <strong>Your subscription has expired.</strong> All Hub features are currently disabled, but your website is completely unaffected.
-                    Keeping an active subscription is suggested to maintain full functionality.
-                    <a href="https://hub.dsquaredmedia.net/dashboard.html#account" target="_blank">Renew your subscription &rarr;</a>
+                    <strong><?php esc_html_e( 'Your subscription has expired.', 'dsquared-hub-connector' ); ?></strong>
+                    <?php esc_html_e( 'All Hub features are currently disabled, but your website is completely unaffected. Keeping an active subscription is suggested to maintain full functionality.', 'dsquared-hub-connector' ); ?>
+                    <a href="https://hub.dsquaredmedia.net/dashboard.html#account" target="_blank"><?php esc_html_e( 'Renew your subscription', 'dsquared-hub-connector' ); ?> &rarr;</a>
                 </div>
             </div>
             <?php endif; ?>
 
             <!-- Tab Navigation -->
             <div class="dhc-tabs">
-                <button class="dhc-tab active" data-tab="connection">Connection</button>
-                <button class="dhc-tab" data-tab="modules">Modules</button>
-                <button class="dhc-tab" data-tab="health">Site Health</button>
-                <button class="dhc-tab" data-tab="activity">Activity Log</button>
+                <button class="dhc-tab active" data-tab="connection"><?php esc_html_e( 'Connection', 'dsquared-hub-connector' ); ?></button>
+                <button class="dhc-tab" data-tab="modules"><?php esc_html_e( 'Modules', 'dsquared-hub-connector' ); ?></button>
+                <button class="dhc-tab" data-tab="ai-discovery"><?php esc_html_e( 'AI Discovery', 'dsquared-hub-connector' ); ?></button>
+                <button class="dhc-tab" data-tab="health"><?php esc_html_e( 'Site Health', 'dsquared-hub-connector' ); ?></button>
+                <button class="dhc-tab" data-tab="activity"><?php esc_html_e( 'Activity Log', 'dsquared-hub-connector' ); ?></button>
             </div>
 
-            <!-- Connection Tab -->
+            <!-- ═══ Connection Tab ═══ -->
             <div class="dhc-tab-content active" id="tab-connection">
                 <div class="dhc-card">
                     <div class="dhc-card-header">
-                        <h2>API Connection</h2>
-                        <p class="dhc-card-desc">Connect this WordPress site to your Dsquared Media Hub account.</p>
+                        <h2><?php esc_html_e( 'API Connection', 'dsquared-hub-connector' ); ?></h2>
+                        <p class="dhc-card-desc"><?php esc_html_e( 'Connect this WordPress site to your Dsquared Media Hub account.', 'dsquared-hub-connector' ); ?></p>
                     </div>
                     <div class="dhc-card-body">
                         <div class="dhc-field">
-                            <label for="dhc-api-key">API Key</label>
+                            <label for="dhc-api-key"><?php esc_html_e( 'API Key', 'dsquared-hub-connector' ); ?></label>
                             <div class="dhc-input-group">
                                 <input type="password" id="dhc-api-key" class="dhc-input"
                                        value="<?php echo esc_attr( $api_key ); ?>"
-                                       placeholder="Enter your Hub API key" autocomplete="off">
-                                <button type="button" class="dhc-btn dhc-btn-icon" id="dhc-toggle-key" title="Show/hide key">
+                                       placeholder="<?php esc_attr_e( 'Enter your Hub API key', 'dsquared-hub-connector' ); ?>" autocomplete="off">
+                                <button type="button" class="dhc-btn dhc-btn-icon" id="dhc-toggle-key" title="<?php esc_attr_e( 'Show/hide key', 'dsquared-hub-connector' ); ?>">
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                 </button>
                             </div>
-                            <p class="dhc-field-hint">Find your API key in <a href="https://hub.dsquaredmedia.net/dashboard.html#account" target="_blank">Hub &rarr; Account &rarr; API Keys</a></p>
+                            <p class="dhc-field-hint"><?php printf( esc_html__( 'Find your API key in %sHub &rarr; Account &rarr; API Keys%s', 'dsquared-hub-connector' ), '<a href="https://hub.dsquaredmedia.net/dashboard.html#account" target="_blank">', '</a>' ); ?></p>
                         </div>
                         <div class="dhc-actions">
-                            <button type="button" class="dhc-btn dhc-btn-primary" id="dhc-save-key">Save &amp; Validate</button>
+                            <button type="button" class="dhc-btn dhc-btn-primary" id="dhc-save-key"><?php esc_html_e( 'Save & Validate', 'dsquared-hub-connector' ); ?></button>
                             <span id="dhc-key-status" class="dhc-status-msg"></span>
                         </div>
                     </div>
@@ -174,34 +156,34 @@ class DHC_Admin {
 
                 <div class="dhc-card">
                     <div class="dhc-card-header">
-                        <h2>Subscription Details</h2>
+                        <h2><?php esc_html_e( 'Subscription Details', 'dsquared-hub-connector' ); ?></h2>
                     </div>
                     <div class="dhc-card-body">
                         <div class="dhc-info-grid">
                             <div class="dhc-info-item">
-                                <span class="dhc-info-label">Status</span>
+                                <span class="dhc-info-label"><?php esc_html_e( 'Status', 'dsquared-hub-connector' ); ?></span>
                                 <span class="dhc-info-value <?php echo ! empty( $subscription['valid'] ) ? 'dhc-text-success' : 'dhc-text-muted'; ?>">
-                                    <?php echo ! empty( $subscription['valid'] ) ? 'Active' : ( ! empty( $subscription['expired'] ) ? 'Expired' : 'Inactive' ); ?>
+                                    <?php echo ! empty( $subscription['valid'] ) ? esc_html__( 'Active', 'dsquared-hub-connector' ) : ( ! empty( $subscription['expired'] ) ? esc_html__( 'Expired', 'dsquared-hub-connector' ) : esc_html__( 'Inactive', 'dsquared-hub-connector' ) ); ?>
                                 </span>
                             </div>
                             <div class="dhc-info-item">
-                                <span class="dhc-info-label">Tier</span>
+                                <span class="dhc-info-label"><?php esc_html_e( 'Tier', 'dsquared-hub-connector' ); ?></span>
                                 <span class="dhc-info-value"><?php echo esc_html( DHC_API_Key::get_tier_label( $subscription['tier'] ?? '' ) ?: '—' ); ?></span>
                             </div>
                             <div class="dhc-info-item">
-                                <span class="dhc-info-label">Expires</span>
+                                <span class="dhc-info-label"><?php esc_html_e( 'Expires', 'dsquared-hub-connector' ); ?></span>
                                 <span class="dhc-info-value"><?php echo ! empty( $subscription['expires'] ) ? esc_html( date( 'M j, Y', strtotime( $subscription['expires'] ) ) ) : '—'; ?></span>
                             </div>
                             <div class="dhc-info-item">
-                                <span class="dhc-info-label">WordPress</span>
+                                <span class="dhc-info-label"><?php esc_html_e( 'WordPress', 'dsquared-hub-connector' ); ?></span>
                                 <span class="dhc-info-value"><?php echo esc_html( get_bloginfo( 'version' ) ); ?></span>
                             </div>
                             <div class="dhc-info-item">
-                                <span class="dhc-info-label">SEO Plugin</span>
-                                <span class="dhc-info-value"><?php echo $seo_plugin ? esc_html( ucfirst( $seo_plugin ) ) : 'None detected'; ?></span>
+                                <span class="dhc-info-label"><?php esc_html_e( 'SEO Plugin', 'dsquared-hub-connector' ); ?></span>
+                                <span class="dhc-info-value"><?php echo $seo_plugin ? esc_html( ucfirst( $seo_plugin ) ) : esc_html__( 'None detected', 'dsquared-hub-connector' ); ?></span>
                             </div>
                             <div class="dhc-info-item">
-                                <span class="dhc-info-label">REST Endpoint</span>
+                                <span class="dhc-info-label"><?php esc_html_e( 'REST Endpoint', 'dsquared-hub-connector' ); ?></span>
                                 <span class="dhc-info-value dhc-mono"><?php echo esc_html( rest_url( 'dsquared-hub/v1/' ) ); ?></span>
                             </div>
                         </div>
@@ -212,40 +194,58 @@ class DHC_Admin {
                     <div class="dhc-card-body">
                         <div class="dhc-notice-inline">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                            <p>If the plugin is disabled or your subscription lapses, it will <strong>not interrupt your website</strong>. Hub features will simply become unavailable until reactivated. Your content, schema markup, and SEO settings will be preserved. Keeping an active subscription is suggested for continued access to all features.</p>
+                            <p><?php esc_html_e( 'If the plugin is disabled or your subscription lapses, it will not interrupt your website. Hub features will simply become unavailable until reactivated. Your content, schema markup, and SEO settings will be preserved. Keeping an active subscription is suggested for continued access to all features.', 'dsquared-hub-connector' ); ?></p>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Modules Tab -->
+            <!-- ═══ Modules Tab ═══ -->
             <div class="dhc-tab-content" id="tab-modules">
                 <div class="dhc-modules-grid">
                     <?php
                     $module_list = array(
                         'auto_post' => array(
-                            'name'  => 'Auto-Post to Draft',
-                            'desc'  => 'Receive blog content from the Hub and create WordPress draft posts automatically. Supports title, body, categories, tags, and featured images.',
-                            'icon'  => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
-                            'tier'  => 'Starter+',
+                            'name' => __( 'Auto-Post to Draft', 'dsquared-hub-connector' ),
+                            'desc' => __( 'Receive blog content from the Hub and create WordPress draft posts automatically. Supports title, body, categories, tags, and featured images.', 'dsquared-hub-connector' ),
+                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+                            'tier' => 'Starter+',
                         ),
                         'schema' => array(
-                            'name'  => 'Schema Injector',
-                            'desc'  => 'Push JSON-LD structured data from the Hub\'s Schema Generator directly into your pages. Supports per-post and site-wide schemas.',
-                            'icon'  => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
-                            'tier'  => 'Growth+',
+                            'name' => __( 'Schema Injector', 'dsquared-hub-connector' ),
+                            'desc' => __( "Push JSON-LD structured data from the Hub's Schema Generator directly into your pages. Supports per-post and site-wide schemas.", 'dsquared-hub-connector' ),
+                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+                            'tier' => 'Growth+',
                         ),
                         'seo_meta' => array(
-                            'name'  => 'SEO Meta Sync',
-                            'desc'  => 'Sync optimized meta titles, descriptions, and OG data from the Hub\'s Page Optimizer. Compatible with Yoast, Rank Math, AIOSEO, and SEOPress.',
-                            'icon'  => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-                            'tier'  => 'Growth+',
+                            'name' => __( 'SEO Meta Sync', 'dsquared-hub-connector' ),
+                            'desc' => __( "Sync optimized meta titles, descriptions, and OG data from the Hub's Page Optimizer. Compatible with Yoast, Rank Math, AIOSEO, and SEOPress.", 'dsquared-hub-connector' ),
+                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+                            'tier' => 'Growth+',
                         ),
                         'site_health' => array(
-                            'name'  => 'Site Health Monitor',
-                            'desc'  => 'Collect real-user Core Web Vitals (LCP, CLS, INP, TTFB, FCP) and report them to the Hub for monitoring. Lightweight ~2KB script.',
-                            'icon'  => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
-                            'tier'  => 'Pro',
+                            'name' => __( 'Site Health Monitor', 'dsquared-hub-connector' ),
+                            'desc' => __( 'Collect real-user Core Web Vitals (LCP, CLS, INP, TTFB, FCP) and report them to the Hub for monitoring. Lightweight ~2KB script.', 'dsquared-hub-connector' ),
+                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+                            'tier' => 'Pro',
+                        ),
+                        'ai_discovery' => array(
+                            'name' => __( 'AI Discovery', 'dsquared-hub-connector' ),
+                            'desc' => __( 'Generate an AI-readable business profile (llms.txt), inject LocalBusiness schema, and ping IndexNow when content changes so AI search engines know you exist.', 'dsquared-hub-connector' ),
+                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2z"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>',
+                            'tier' => 'Pro',
+                        ),
+                        'content_decay' => array(
+                            'name' => __( 'Content Decay Alerts', 'dsquared-hub-connector' ),
+                            'desc' => __( 'Monitor published posts for freshness and report stale content back to the Hub. Posts not updated in 6+ months get flagged for review.', 'dsquared-hub-connector' ),
+                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+                            'tier' => 'Growth+',
+                        ),
+                        'form_capture' => array(
+                            'name' => __( 'Form Submission Capture', 'dsquared-hub-connector' ),
+                            'desc' => __( 'Hook into popular form plugins to capture leads, filter spam in real-time, and send clean lead data to your Hub pipeline. No personal data stored locally.', 'dsquared-hub-connector' ),
+                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>',
+                            'tier' => 'Pro',
                         ),
                     );
 
@@ -272,12 +272,12 @@ class DHC_Admin {
                         <?php if ( ! $tier_ok ) : ?>
                             <div class="dhc-module-upgrade">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-                                Upgrade your plan to unlock this module
+                                <?php esc_html_e( 'Upgrade your plan to unlock this module', 'dsquared-hub-connector' ); ?>
                             </div>
                         <?php endif; ?>
                         <?php if ( $is_available ) : ?>
                             <div class="dhc-module-status">
-                                <span class="dhc-status-dot dhc-status-active"></span> Active
+                                <span class="dhc-status-dot dhc-status-active"></span> <?php esc_html_e( 'Active', 'dsquared-hub-connector' ); ?>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -285,28 +285,105 @@ class DHC_Admin {
                 </div>
 
                 <div class="dhc-actions" style="margin-top: 20px;">
-                    <button type="button" class="dhc-btn dhc-btn-primary" id="dhc-save-modules">Save Module Settings</button>
+                    <button type="button" class="dhc-btn dhc-btn-primary" id="dhc-save-modules"><?php esc_html_e( 'Save Module Settings', 'dsquared-hub-connector' ); ?></button>
                     <span id="dhc-modules-status" class="dhc-status-msg"></span>
                 </div>
             </div>
 
-            <!-- Site Health Tab -->
+            <!-- ═══ AI Discovery Tab ═══ -->
+            <div class="dhc-tab-content" id="tab-ai-discovery">
+                <div class="dhc-card">
+                    <div class="dhc-card-header">
+                        <h2><?php esc_html_e( 'Business Profile for AI Discovery', 'dsquared-hub-connector' ); ?></h2>
+                        <p class="dhc-card-desc"><?php esc_html_e( 'This information is used to generate your llms.txt, llms-full.txt, and LocalBusiness schema so AI platforms know your business exists and what services you offer.', 'dsquared-hub-connector' ); ?></p>
+                    </div>
+                    <div class="dhc-card-body">
+                        <div class="dhc-field">
+                            <label for="dhc-biz-name"><?php esc_html_e( 'Business Name', 'dsquared-hub-connector' ); ?></label>
+                            <input type="text" id="dhc-biz-name" class="dhc-input" value="<?php echo esc_attr( $ai_profile['business_name'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'e.g., Acme Garage Door Repair', 'dsquared-hub-connector' ); ?>">
+                        </div>
+                        <div class="dhc-field">
+                            <label for="dhc-biz-desc"><?php esc_html_e( 'Business Description', 'dsquared-hub-connector' ); ?></label>
+                            <textarea id="dhc-biz-desc" class="dhc-input dhc-textarea" rows="3" placeholder="<?php esc_attr_e( 'Describe what your business does, who you serve, and what makes you different.', 'dsquared-hub-connector' ); ?>"><?php echo esc_textarea( $ai_profile['description'] ?? '' ); ?></textarea>
+                        </div>
+                        <div class="dhc-field">
+                            <label for="dhc-biz-services"><?php esc_html_e( 'Services Offered', 'dsquared-hub-connector' ); ?></label>
+                            <textarea id="dhc-biz-services" class="dhc-input dhc-textarea" rows="4" placeholder="<?php esc_attr_e( "One service per line, e.g.:\nBroken Spring Repair\nGarage Door Installation\nOpener Replacement", 'dsquared-hub-connector' ); ?>"><?php echo esc_textarea( $ai_profile['services_text'] ?? '' ); ?></textarea>
+                            <p class="dhc-field-hint"><?php esc_html_e( 'Enter one service per line. Be specific — these are what AI platforms will associate with your business.', 'dsquared-hub-connector' ); ?></p>
+                        </div>
+                        <div class="dhc-field-row">
+                            <div class="dhc-field">
+                                <label for="dhc-biz-phone"><?php esc_html_e( 'Phone', 'dsquared-hub-connector' ); ?></label>
+                                <input type="text" id="dhc-biz-phone" class="dhc-input" value="<?php echo esc_attr( $ai_profile['phone'] ?? '' ); ?>" placeholder="(555) 123-4567">
+                            </div>
+                            <div class="dhc-field">
+                                <label for="dhc-biz-email"><?php esc_html_e( 'Email', 'dsquared-hub-connector' ); ?></label>
+                                <input type="email" id="dhc-biz-email" class="dhc-input" value="<?php echo esc_attr( $ai_profile['email'] ?? '' ); ?>" placeholder="info@example.com">
+                            </div>
+                        </div>
+                        <div class="dhc-field">
+                            <label for="dhc-biz-address"><?php esc_html_e( 'Address', 'dsquared-hub-connector' ); ?></label>
+                            <input type="text" id="dhc-biz-address" class="dhc-input" value="<?php echo esc_attr( $ai_profile['address'] ?? '' ); ?>" placeholder="<?php esc_attr_e( '123 Main St, Dallas, TX 75201', 'dsquared-hub-connector' ); ?>">
+                        </div>
+                        <div class="dhc-field">
+                            <label for="dhc-biz-areas"><?php esc_html_e( 'Service Areas', 'dsquared-hub-connector' ); ?></label>
+                            <textarea id="dhc-biz-areas" class="dhc-input dhc-textarea" rows="2" placeholder="<?php esc_attr_e( "One area per line, e.g.:\nDallas, TX\nFort Worth, TX\nPlano, TX", 'dsquared-hub-connector' ); ?>"><?php echo esc_textarea( $ai_profile['service_areas_text'] ?? '' ); ?></textarea>
+                        </div>
+                        <div class="dhc-field">
+                            <label for="dhc-biz-hours"><?php esc_html_e( 'Business Hours', 'dsquared-hub-connector' ); ?></label>
+                            <input type="text" id="dhc-biz-hours" class="dhc-input" value="<?php echo esc_attr( $ai_profile['hours'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'Mon-Fri 8am-6pm, Sat 9am-2pm', 'dsquared-hub-connector' ); ?>">
+                        </div>
+                        <div class="dhc-field">
+                            <label for="dhc-biz-extra"><?php esc_html_e( 'Additional Info', 'dsquared-hub-connector' ); ?></label>
+                            <textarea id="dhc-biz-extra" class="dhc-input dhc-textarea" rows="3" placeholder="<?php esc_attr_e( 'Certifications, brands carried, years in business, unique selling points, etc.', 'dsquared-hub-connector' ); ?>"><?php echo esc_textarea( $ai_profile['extra_info'] ?? '' ); ?></textarea>
+                        </div>
+                        <div class="dhc-actions">
+                            <button type="button" class="dhc-btn dhc-btn-primary" id="dhc-save-ai-discovery"><?php esc_html_e( 'Save & Generate Files', 'dsquared-hub-connector' ); ?></button>
+                            <span id="dhc-ai-discovery-status" class="dhc-status-msg"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dhc-card">
+                    <div class="dhc-card-header">
+                        <h2><?php esc_html_e( 'Generated AI Discovery Files', 'dsquared-hub-connector' ); ?></h2>
+                    </div>
+                    <div class="dhc-card-body">
+                        <div class="dhc-info-grid">
+                            <div class="dhc-info-item">
+                                <span class="dhc-info-label">llms.txt</span>
+                                <span class="dhc-info-value dhc-mono"><a href="<?php echo esc_url( home_url( '/llms.txt' ) ); ?>" target="_blank"><?php echo esc_html( home_url( '/llms.txt' ) ); ?></a></span>
+                            </div>
+                            <div class="dhc-info-item">
+                                <span class="dhc-info-label">llms-full.txt</span>
+                                <span class="dhc-info-value dhc-mono"><a href="<?php echo esc_url( home_url( '/llms-full.txt' ) ); ?>" target="_blank"><?php echo esc_html( home_url( '/llms-full.txt' ) ); ?></a></span>
+                            </div>
+                            <div class="dhc-info-item">
+                                <span class="dhc-info-label"><?php esc_html_e( 'IndexNow Key', 'dsquared-hub-connector' ); ?></span>
+                                <span class="dhc-info-value dhc-mono"><?php echo esc_html( get_option( 'dhc_indexnow_key', 'Not generated yet' ) ); ?></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ Site Health Tab ═══ -->
             <div class="dhc-tab-content" id="tab-health">
                 <div class="dhc-card">
                     <div class="dhc-card-header">
-                        <h2>Core Web Vitals — Last 30 Days</h2>
-                        <p class="dhc-card-desc">Real-user metrics collected from your site visitors (p75 values).</p>
+                        <h2><?php esc_html_e( 'Core Web Vitals — Last 30 Days', 'dsquared-hub-connector' ); ?></h2>
+                        <p class="dhc-card-desc"><?php esc_html_e( 'Real-user metrics collected from your site visitors (p75 values).', 'dsquared-hub-connector' ); ?></p>
                     </div>
                     <div class="dhc-card-body">
                         <?php if ( $cwv_metrics['count'] > 0 ) : ?>
                         <div class="dhc-cwv-grid">
                             <?php
                             $cwv_items = array(
-                                'lcp'  => array( 'label' => 'LCP', 'full' => 'Largest Contentful Paint', 'unit' => 'ms', 'good' => '< 2500ms' ),
-                                'cls'  => array( 'label' => 'CLS', 'full' => 'Cumulative Layout Shift', 'unit' => '', 'good' => '< 0.1' ),
-                                'inp'  => array( 'label' => 'INP', 'full' => 'Interaction to Next Paint', 'unit' => 'ms', 'good' => '< 200ms' ),
-                                'ttfb' => array( 'label' => 'TTFB', 'full' => 'Time to First Byte', 'unit' => 'ms', 'good' => '< 800ms' ),
-                                'fid'  => array( 'label' => 'FID', 'full' => 'First Input Delay', 'unit' => 'ms', 'good' => '< 100ms' ),
+                                'lcp'  => array( 'label' => 'LCP', 'full' => __( 'Largest Contentful Paint', 'dsquared-hub-connector' ), 'unit' => 'ms', 'good' => '< 2500ms' ),
+                                'cls'  => array( 'label' => 'CLS', 'full' => __( 'Cumulative Layout Shift', 'dsquared-hub-connector' ), 'unit' => '', 'good' => '< 0.1' ),
+                                'inp'  => array( 'label' => 'INP', 'full' => __( 'Interaction to Next Paint', 'dsquared-hub-connector' ), 'unit' => 'ms', 'good' => '< 200ms' ),
+                                'ttfb' => array( 'label' => 'TTFB', 'full' => __( 'Time to First Byte', 'dsquared-hub-connector' ), 'unit' => 'ms', 'good' => '< 800ms' ),
+                                'fid'  => array( 'label' => 'FID', 'full' => __( 'First Input Delay', 'dsquared-hub-connector' ), 'unit' => 'ms', 'good' => '< 100ms' ),
                             );
                             foreach ( $cwv_items as $key => $item ) :
                                 $value  = $cwv_metrics[ $key . '_p75' ];
@@ -314,33 +391,31 @@ class DHC_Admin {
                             ?>
                             <div class="dhc-cwv-card dhc-cwv-<?php echo esc_attr( $rating ); ?>">
                                 <div class="dhc-cwv-label"><?php echo esc_html( $item['label'] ); ?></div>
-                                <div class="dhc-cwv-value">
-                                    <?php echo null !== $value ? esc_html( $value . $item['unit'] ) : '—'; ?>
-                                </div>
+                                <div class="dhc-cwv-value"><?php echo null !== $value ? esc_html( $value . $item['unit'] ) : '—'; ?></div>
                                 <div class="dhc-cwv-full"><?php echo esc_html( $item['full'] ); ?></div>
-                                <div class="dhc-cwv-threshold">Good: <?php echo esc_html( $item['good'] ); ?></div>
+                                <div class="dhc-cwv-threshold"><?php echo esc_html__( 'Good:', 'dsquared-hub-connector' ) . ' ' . esc_html( $item['good'] ); ?></div>
                             </div>
                             <?php endforeach; ?>
                         </div>
-                        <p class="dhc-cwv-count"><?php echo esc_html( number_format( $cwv_metrics['count'] ) ); ?> page loads measured</p>
+                        <p class="dhc-cwv-count"><?php echo esc_html( number_format( $cwv_metrics['count'] ) ); ?> <?php esc_html_e( 'page loads measured', 'dsquared-hub-connector' ); ?></p>
                         <?php else : ?>
                         <div class="dhc-empty-state">
                             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-                            <p>No Core Web Vitals data collected yet.</p>
-                            <p class="dhc-text-muted">Data will appear once real users visit your site with the Site Health module enabled.</p>
+                            <p><?php esc_html_e( 'No Core Web Vitals data collected yet.', 'dsquared-hub-connector' ); ?></p>
+                            <p class="dhc-text-muted"><?php esc_html_e( 'Data will appear once real users visit your site with the Site Health module enabled.', 'dsquared-hub-connector' ); ?></p>
                         </div>
                         <?php endif; ?>
                     </div>
                 </div>
             </div>
 
-            <!-- Activity Log Tab -->
+            <!-- ═══ Activity Log Tab ═══ -->
             <div class="dhc-tab-content" id="tab-activity">
                 <div class="dhc-card">
                     <div class="dhc-card-header">
-                        <h2>Recent Activity</h2>
+                        <h2><?php esc_html_e( 'Recent Activity', 'dsquared-hub-connector' ); ?></h2>
                         <?php if ( ! empty( $activity_log ) ) : ?>
-                        <button type="button" class="dhc-btn dhc-btn-outline dhc-btn-sm" id="dhc-clear-log">Clear Log</button>
+                        <button type="button" class="dhc-btn dhc-btn-outline dhc-btn-sm" id="dhc-clear-log"><?php esc_html_e( 'Clear Log', 'dsquared-hub-connector' ); ?></button>
                         <?php endif; ?>
                     </div>
                     <div class="dhc-card-body">
@@ -348,9 +423,7 @@ class DHC_Admin {
                         <div class="dhc-activity-list">
                             <?php foreach ( array_slice( $activity_log, 0, 25 ) as $entry ) : ?>
                             <div class="dhc-activity-item">
-                                <div class="dhc-activity-icon">
-                                    <?php echo self::get_activity_icon( $entry['action'] ); ?>
-                                </div>
+                                <div class="dhc-activity-icon"><?php echo self::get_activity_icon( $entry['action'] ); ?></div>
                                 <div class="dhc-activity-content">
                                     <span class="dhc-activity-text"><?php echo esc_html( self::format_activity( $entry ) ); ?></span>
                                     <span class="dhc-activity-time"><?php echo esc_html( $entry['time'] ?? '' ); ?></span>
@@ -361,8 +434,8 @@ class DHC_Admin {
                         <?php else : ?>
                         <div class="dhc-empty-state">
                             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                            <p>No activity recorded yet.</p>
-                            <p class="dhc-text-muted">Actions from the Hub will appear here as they happen.</p>
+                            <p><?php esc_html_e( 'No activity recorded yet.', 'dsquared-hub-connector' ); ?></p>
+                            <p class="dhc-text-muted"><?php esc_html_e( 'Actions from the Hub will appear here as they happen.', 'dsquared-hub-connector' ); ?></p>
                         </div>
                         <?php endif; ?>
                     </div>
@@ -371,8 +444,8 @@ class DHC_Admin {
 
             <!-- Footer -->
             <div class="dhc-footer">
-                <span>Dsquared Hub Connector v<?php echo esc_html( DHC_VERSION ); ?> &mdash; by <a href="https://dsquaredmedia.net" target="_blank">Dsquared Media</a></span>
-                <span><a href="https://hub.dsquaredmedia.net/dashboard.html#help-center" target="_blank">Support</a></span>
+                <span><?php printf( esc_html__( 'Dsquared Hub Connector v%s — by %sDsquared Media%s', 'dsquared-hub-connector' ), DHC_VERSION, '<a href="https://dsquaredmedia.net" target="_blank">', '</a>' ); ?></span>
+                <span><a href="https://hub.dsquaredmedia.net/dashboard.html#help-center" target="_blank"><?php esc_html_e( 'Support', 'dsquared-hub-connector' ); ?></a></span>
             </div>
         </div>
         <?php
@@ -383,27 +456,24 @@ class DHC_Admin {
      */
     public static function ajax_save_settings() {
         check_ajax_referer( 'dhc_admin_nonce', 'nonce' );
-
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Unauthorized' );
+            wp_send_json_error( esc_html__( 'Unauthorized', 'dsquared-hub-connector' ) );
         }
 
-        $api_key = sanitize_text_field( $_POST['api_key'] ?? '' );
-        $modules = isset( $_POST['modules'] ) ? (array) $_POST['modules'] : array();
+        $api_key = sanitize_text_field( wp_unslash( $_POST['api_key'] ?? '' ) );
+        $modules = isset( $_POST['modules'] ) ? (array) wp_unslash( $_POST['modules'] ) : array();
 
-        // Sanitize modules
+        $all_module_keys = array( 'auto_post', 'schema', 'seo_meta', 'site_health', 'ai_discovery', 'content_decay', 'form_capture' );
         $clean_modules = array();
-        foreach ( array( 'auto_post', 'schema', 'seo_meta', 'site_health' ) as $mod ) {
+        foreach ( $all_module_keys as $mod ) {
             $clean_modules[ $mod ] = ! empty( $modules[ $mod ] );
         }
 
         update_option( 'dhc_api_key', $api_key );
         update_option( 'dhc_modules', $clean_modules );
-
-        // Clear cached subscription so it re-validates
         DHC_API_Key::clear_cache();
 
-        wp_send_json_success( 'Settings saved.' );
+        wp_send_json_success( esc_html__( 'Settings saved.', 'dsquared-hub-connector' ) );
     }
 
     /**
@@ -411,32 +481,32 @@ class DHC_Admin {
      */
     public static function ajax_validate_key() {
         check_ajax_referer( 'dhc_admin_nonce', 'nonce' );
-
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Unauthorized' );
+            wp_send_json_error( esc_html__( 'Unauthorized', 'dsquared-hub-connector' ) );
         }
 
-        $api_key = sanitize_text_field( $_POST['api_key'] ?? '' );
-
+        $api_key = sanitize_text_field( wp_unslash( $_POST['api_key'] ?? '' ) );
         if ( empty( $api_key ) ) {
-            wp_send_json_error( 'Please enter an API key.' );
+            wp_send_json_error( esc_html__( 'Please enter an API key.', 'dsquared-hub-connector' ) );
         }
 
-        // Save the key first
         update_option( 'dhc_api_key', $api_key );
         DHC_API_Key::clear_cache();
 
-        // Validate
         $result = DHC_API_Key::validate( $api_key, true );
 
         if ( ! empty( $result['valid'] ) ) {
             wp_send_json_success( array(
-                'message' => 'API key validated successfully! Connected as ' . DHC_API_Key::get_tier_label( $result['tier'] ?? '' ) . '.',
+                'message' => sprintf(
+                    /* translators: %s: tier label */
+                    esc_html__( 'API key validated successfully! Connected as %s.', 'dsquared-hub-connector' ),
+                    DHC_API_Key::get_tier_label( $result['tier'] ?? '' )
+                ),
                 'tier'    => $result['tier'] ?? '',
                 'expires' => $result['expires'] ?? '',
             ) );
         } else {
-            wp_send_json_error( $result['message'] ?? 'Invalid API key.' );
+            wp_send_json_error( $result['message'] ?? esc_html__( 'Invalid API key.', 'dsquared-hub-connector' ) );
         }
     }
 
@@ -445,30 +515,62 @@ class DHC_Admin {
      */
     public static function ajax_clear_log() {
         check_ajax_referer( 'dhc_admin_nonce', 'nonce' );
-
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Unauthorized' );
+            wp_send_json_error( esc_html__( 'Unauthorized', 'dsquared-hub-connector' ) );
+        }
+        update_option( 'dhc_activity_log', array() );
+        wp_send_json_success( esc_html__( 'Activity log cleared.', 'dsquared-hub-connector' ) );
+    }
+
+    /**
+     * AJAX: Save AI Discovery business profile
+     */
+    public static function ajax_save_ai_discovery() {
+        check_ajax_referer( 'dhc_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( esc_html__( 'Unauthorized', 'dsquared-hub-connector' ) );
         }
 
-        update_option( 'dhc_activity_log', array() );
-        wp_send_json_success( 'Activity log cleared.' );
+        $profile = array(
+            'business_name'      => sanitize_text_field( wp_unslash( $_POST['business_name'] ?? '' ) ),
+            'description'        => sanitize_textarea_field( wp_unslash( $_POST['description'] ?? '' ) ),
+            'services_text'      => sanitize_textarea_field( wp_unslash( $_POST['services_text'] ?? '' ) ),
+            'phone'              => sanitize_text_field( wp_unslash( $_POST['phone'] ?? '' ) ),
+            'email'              => sanitize_email( wp_unslash( $_POST['email'] ?? '' ) ),
+            'address'            => sanitize_text_field( wp_unslash( $_POST['address'] ?? '' ) ),
+            'service_areas_text' => sanitize_textarea_field( wp_unslash( $_POST['service_areas_text'] ?? '' ) ),
+            'hours'              => sanitize_text_field( wp_unslash( $_POST['hours'] ?? '' ) ),
+            'extra_info'         => sanitize_textarea_field( wp_unslash( $_POST['extra_info'] ?? '' ) ),
+        );
+
+        // Parse services and areas from text
+        $profile['services'] = array_filter( array_map( 'trim', explode( "\n", $profile['services_text'] ) ) );
+        $profile['service_areas'] = array_filter( array_map( 'trim', explode( "\n", $profile['service_areas_text'] ) ) );
+
+        update_option( 'dhc_ai_business_profile', $profile );
+
+        // Regenerate llms.txt files if the AI Discovery class has the method
+        if ( class_exists( 'DHC_AI_Discovery' ) && method_exists( 'DHC_AI_Discovery', 'regenerate_files' ) ) {
+            DHC_AI_Discovery::regenerate_files( $profile );
+        }
+
+        wp_send_json_success( esc_html__( 'Business profile saved and AI discovery files regenerated.', 'dsquared-hub-connector' ) );
     }
 
     /**
      * Get activity icon SVG
      */
     private static function get_activity_icon( $action ) {
-        switch ( $action ) {
-            case 'auto_post':
-                return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5661FF" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
-            case 'schema_updated':
-            case 'global_schema_updated':
-                return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>';
-            case 'seo_meta_sync':
-                return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
-            default:
-                return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8892A8" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>';
-        }
+        $icons = array(
+            'auto_post'            => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5661FF" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+            'schema_updated'       => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+            'global_schema_updated' => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+            'seo_meta_sync'        => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+            'ai_discovery'         => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" stroke-width="2"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2z"/><path d="M2 12h20"/></svg>',
+            'content_decay'        => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+            'form_capture'         => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/></svg>',
+        );
+        return $icons[ $action ] ?? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8892A8" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>';
     }
 
     /**
@@ -477,13 +579,19 @@ class DHC_Admin {
     private static function format_activity( $entry ) {
         switch ( $entry['action'] ) {
             case 'auto_post':
-                return 'Draft post created: "' . ( $entry['title'] ?? 'Untitled' ) . '" (#' . ( $entry['post_id'] ?? '?' ) . ')';
+                return sprintf( __( 'Draft post created: "%s" (#%s)', 'dsquared-hub-connector' ), $entry['title'] ?? 'Untitled', $entry['post_id'] ?? '?' );
             case 'schema_updated':
-                return 'Schema markup updated for post #' . ( $entry['post_id'] ?? '?' ) . ' (' . ( $entry['schema_type'] ?? 'custom' ) . ')';
+                return sprintf( __( 'Schema markup updated for post #%s (%s)', 'dsquared-hub-connector' ), $entry['post_id'] ?? '?', $entry['schema_type'] ?? 'custom' );
             case 'global_schema_updated':
-                return 'Global schema markup updated (' . ( $entry['schema_type'] ?? 'custom' ) . ')';
+                return sprintf( __( 'Global schema markup updated (%s)', 'dsquared-hub-connector' ), $entry['schema_type'] ?? 'custom' );
             case 'seo_meta_sync':
-                return 'SEO meta synced for post #' . ( $entry['post_id'] ?? '?' ) . ' → ' . ( $entry['synced_to'] ?? 'native' );
+                return sprintf( __( 'SEO meta synced for post #%s', 'dsquared-hub-connector' ), $entry['post_id'] ?? '?' );
+            case 'ai_discovery':
+                return __( 'AI discovery files regenerated', 'dsquared-hub-connector' );
+            case 'content_decay':
+                return sprintf( __( 'Content decay scan completed — %d stale posts found', 'dsquared-hub-connector' ), $entry['stale_count'] ?? 0 );
+            case 'form_capture':
+                return sprintf( __( 'Lead captured from %s', 'dsquared-hub-connector' ), $entry['form_plugin'] ?? 'form' );
             default:
                 return ucfirst( str_replace( '_', ' ', $entry['action'] ?? 'Unknown action' ) );
         }

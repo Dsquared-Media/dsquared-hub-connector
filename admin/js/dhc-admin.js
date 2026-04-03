@@ -90,6 +90,40 @@
         });
     });
 
+    // Save AI Discovery business profile
+    $(document).on('click', '#dhc-save-ai-discovery', function() {
+        var btn = $(this);
+        var status = $('#dhc-ai-discovery-status');
+
+        btn.prop('disabled', true).text('Saving & Generating...');
+        status.text('').removeClass('success error');
+
+        $.post(dhcAdmin.ajaxUrl, {
+            action: 'dhc_save_ai_discovery',
+            nonce: dhcAdmin.nonce,
+            business_name: $('#dhc-biz-name').val(),
+            description: $('#dhc-biz-desc').val(),
+            services_text: $('#dhc-biz-services').val(),
+            phone: $('#dhc-biz-phone').val(),
+            email: $('#dhc-biz-email').val(),
+            address: $('#dhc-biz-address').val(),
+            service_areas_text: $('#dhc-biz-areas').val(),
+            hours: $('#dhc-biz-hours').val(),
+            extra_info: $('#dhc-biz-extra').val()
+        }, function(response) {
+            btn.prop('disabled', false).text('Save & Generate Files');
+            if (response.success) {
+                status.text(response.data || 'Profile saved and files generated!').addClass('success').removeClass('error');
+                setTimeout(function() { status.text(''); }, 4000);
+            } else {
+                status.text(response.data || 'Save failed.').addClass('error').removeClass('success');
+            }
+        }).fail(function() {
+            btn.prop('disabled', false).text('Save & Generate Files');
+            status.text('Network error.').addClass('error').removeClass('success');
+        });
+    });
+
     // Clear activity log
     $(document).on('click', '#dhc-clear-log', function() {
         if (!confirm('Clear all activity log entries?')) return;
