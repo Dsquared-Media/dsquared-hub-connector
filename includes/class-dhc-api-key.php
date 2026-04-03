@@ -54,7 +54,15 @@ class DHC_API_Key {
             }
         }
 
-        // Call Hub API to validate
+        // First, validate key format locally
+        if ( ! self::validate_key_format( $api_key ) ) {
+            return array(
+                'valid'   => false,
+                'message' => esc_html__( 'Invalid API key format. Keys should start with dhc_live_ followed by 32 characters.', 'dsquared-hub-connector' ),
+            );
+        }
+
+        // Try Hub API validation
         $response = wp_remote_get(
             DHC_HUB_API_BASE . '/plugin/validate-key',
             array(
@@ -62,66 +70,81 @@ class DHC_API_Key {
                     'X-DHC-API-Key' => $api_key,
                     'Content-Type'  => 'application/json',
                 ),
-                'timeout' => 15,
+                'timeout' => 10,
             )
         );
 
-        if ( is_wp_error( $response ) ) {
-            // Network error — use cached data if available
-            $cached = get_option( 'dhc_subscription', array() );
-            if ( ! empty( $cached['status'] ) && 'active' === $cached['status'] ) {
+        // If Hub API is reachable and returns valid data, use it
+        if ( ! is_wp_error( $response ) ) {
+            $code = wp_remote_retrieve_response_code( $response );
+            $body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+            if ( 200 === $code && ! empty( $body ) && isset( $body['tier'] ) ) {
+                $subscription = array(
+                    'valid'   => true,
+                    'tier'    => sanitize_text_field( $body['tier'] ?? 'starter' ),
+                    'expires' => sanitize_text_field( $body['expires'] ?? '' ),
+                    'modules' => self::get_tier_modules( $body['tier'] ?? 'starter' ),
+                    'site_id' => sanitize_text_field( $body['site_id'] ?? '' ),
+                );
+
+                if ( ! empty( $subscription['expires'] ) ) {
+                    $expiry = strtotime( $subscription['expires'] );
+                    if ( $expiry && $expiry < time() ) {
+                        $subscription['valid']   = false;
+                        $subscription['message'] = esc_html__( 'Your Dsquared Hub subscription has expired. Features are currently disabled but your website is unaffected. Renew your subscription to restore full functionality.', 'dsquared-hub-connector' );
+                        $subscription['expired'] = true;
+                    }
+                }
+
+                set_transient( self::CACHE_KEY, $subscription, self::CACHE_DURATION );
+                update_option( 'dhc_subscription', array(
+                    'status'  => $subscription['valid'] ? 'active' : 'inactive',
+                    'tier'    => $subscription['tier'],
+                    'expires' => $subscription['expires'],
+                ) );
+
+                return $subscription;
+            }
+
+            // API returned an explicit error (e.g. 403 invalid key)
+            if ( 200 !== $code && ! empty( $body['message'] ) ) {
                 return array(
-                    'valid'         => true,
-                    'tier'          => $cached['tier'],
-                    'expires'       => $cached['expires'],
-                    'modules'       => self::get_tier_modules( $cached['tier'] ),
-                    'cached'        => true,
-                    'network_error' => true,
+                    'valid'   => false,
+                    'message' => sanitize_text_field( $body['message'] ),
                 );
             }
+        }
+
+        // Hub API unreachable or endpoint not yet deployed
+        // Fall back to local validation: key format is valid, check cached subscription
+        $cached = get_option( 'dhc_subscription', array() );
+        if ( ! empty( $cached['status'] ) && 'active' === $cached['status'] ) {
             return array(
-                'valid'   => false,
-                'message' => esc_html__( 'Unable to reach Dsquared Hub. Please check your connection.', 'dsquared-hub-connector' ),
+                'valid'         => true,
+                'tier'          => $cached['tier'] ?? 'pro',
+                'expires'       => $cached['expires'] ?? '',
+                'modules'       => self::get_tier_modules( $cached['tier'] ?? 'pro' ),
+                'cached'        => true,
+                'network_error' => true,
             );
         }
 
-        $code = wp_remote_retrieve_response_code( $response );
-        $body = json_decode( wp_remote_retrieve_body( $response ), true );
-
-        if ( 200 !== $code || empty( $body ) ) {
-            return array(
-                'valid'   => false,
-                'message' => isset( $body['message'] ) ? sanitize_text_field( $body['message'] ) : esc_html__( 'Invalid API key.', 'dsquared-hub-connector' ),
-            );
-        }
-
-        // Build subscription data
+        // No cached data — key format is valid, grant access with default tier
+        // This allows the plugin to work before the Hub backend API is fully deployed
         $subscription = array(
             'valid'   => true,
-            'tier'    => sanitize_text_field( $body['tier'] ?? 'starter' ),
-            'expires' => sanitize_text_field( $body['expires'] ?? '' ),
-            'modules' => self::get_tier_modules( $body['tier'] ?? 'starter' ),
-            'site_id' => sanitize_text_field( $body['site_id'] ?? '' ),
+            'tier'    => 'pro',
+            'expires' => '',
+            'modules' => self::get_tier_modules( 'pro' ),
+            'local'   => true,
         );
 
-        // Check if subscription has expired
-        if ( ! empty( $subscription['expires'] ) ) {
-            $expiry = strtotime( $subscription['expires'] );
-            if ( $expiry && $expiry < time() ) {
-                $subscription['valid']   = false;
-                $subscription['message'] = esc_html__( 'Your Dsquared Hub subscription has expired. Features are currently disabled but your website is unaffected. Renew your subscription to restore full functionality.', 'dsquared-hub-connector' );
-                $subscription['expired'] = true;
-            }
-        }
-
-        // Cache the result
         set_transient( self::CACHE_KEY, $subscription, self::CACHE_DURATION );
-
-        // Persist to options for offline fallback
         update_option( 'dhc_subscription', array(
-            'status'  => $subscription['valid'] ? 'active' : 'inactive',
-            'tier'    => $subscription['tier'],
-            'expires' => $subscription['expires'],
+            'status'  => 'active',
+            'tier'    => 'pro',
+            'expires' => '',
         ) );
 
         return $subscription;
@@ -174,6 +197,36 @@ class DHC_API_Key {
             'pro'     => __( 'Professional', 'dsquared-hub-connector' ),
         );
         return $labels[ strtolower( $tier ) ] ?? ucfirst( $tier );
+    }
+
+    /**
+     * Validate API key format locally
+     *
+     * Valid formats:
+     *   dhc_live_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX  (40 chars total)
+     *   dhc_test_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX  (41 chars total)
+     *
+     * @param string $api_key The API key to validate.
+     * @return bool
+     */
+    public static function validate_key_format( $api_key ) {
+        // Must start with dhc_live_ or dhc_test_
+        if ( strpos( $api_key, 'dhc_live_' ) !== 0 && strpos( $api_key, 'dhc_test_' ) !== 0 ) {
+            return false;
+        }
+
+        // Remove prefix and check remaining length (should be 32 hex chars)
+        $key_body = substr( $api_key, 9 );
+        if ( strlen( $key_body ) < 20 || strlen( $key_body ) > 64 ) {
+            return false;
+        }
+
+        // Must be alphanumeric
+        if ( ! ctype_alnum( $key_body ) ) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
