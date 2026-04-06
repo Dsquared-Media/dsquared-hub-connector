@@ -20,7 +20,7 @@ class DHC_Content_Decay {
     const YELLOW_THRESHOLD = 180; // 6 months
     const RED_THRESHOLD    = 365; // 12 months
 
-    public static function instance() {
+    public static function init() {
         if ( null === self::$instance ) {
             self::$instance = new self();
         }
@@ -155,9 +155,8 @@ class DHC_Content_Decay {
     }
 
     public function check_api_key( $request ) {
-        $key = $request->get_header( 'X-DHC-API-Key' );
-        if ( ! $key ) return false;
-        return DHC_API_Key::instance()->validate_local( $key );
+        $result = DHC_API_Key::authenticate_request( $request );
+        return ( true === $result );
     }
 
     public function get_decay_report( $request ) {

@@ -65,7 +65,7 @@ class DHC_Form_Capture {
         '/(https?:\/\/[^\s]+){3,}/',   // 3+ URLs in one field
     );
 
-    public static function instance() {
+    public static function init() {
         if ( null === self::$instance ) {
             self::$instance = new self();
         }
@@ -528,9 +528,8 @@ class DHC_Form_Capture {
     }
 
     public function check_api_key( $request ) {
-        $key = $request->get_header( 'X-DHC-API-Key' );
-        if ( ! $key ) return false;
-        return DHC_API_Key::instance()->validate_local( $key );
+        $result = DHC_API_Key::authenticate_request( $request );
+        return ( true === $result );
     }
 
     public function get_lead_stats( $request ) {
