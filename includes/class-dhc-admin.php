@@ -76,9 +76,12 @@ class DHC_Admin {
                 <div class="dhc-header-left">
                     <div class="dhc-logo">
                         <svg width="28" height="28" viewBox="0 0 40 40" fill="none">
-                            <rect width="40" height="40" rx="8" fill="#5661FF"/>
-                            <path d="M10 12h8c5.5 0 10 4.5 10 10s-4.5 10-10 10h-8V12z" fill="none" stroke="#fff" stroke-width="2.5"/>
-                            <path d="M22 12h8v8" fill="none" stroke="#E8466D" stroke-width="2.5" stroke-linecap="round"/>
+                            <rect width="40" height="40" rx="10" fill="#5661FF"/>
+                            <path d="M20 8c-1.5 0-2.8 0.6-3.8 1.5C15 10.6 14 12.2 14 14c0 1.2 0.4 2.3 1 3.2 -0.6 0.9-1 2-1 3.2 0 1.8 1 3.4 2.2 4.5 1 0.9 2.3 1.5 3.8 1.5s2.8-0.6 3.8-1.5C25 23.8 26 22.2 26 20.4c0-1.2-0.4-2.3-1-3.2 0.6-0.9 1-2 1-3.2 0-1.8-1-3.4-2.2-4.5C22.8 8.6 21.5 8 20 8z" fill="none" stroke="#fff" stroke-width="1.8"/>
+                            <path d="M14 17.2h12" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+                            <circle cx="17" cy="13.5" r="1.2" fill="#fff"/>
+                            <circle cx="23" cy="13.5" r="1.2" fill="#fff"/>
+                            <path d="M17 21.5c0 0 1.5 2 3 2s3-2 3-2" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
                         </svg>
                     </div>
                     <div>
@@ -103,6 +106,10 @@ class DHC_Admin {
                             <?php esc_html_e( 'Not Connected', 'dsquared-hub-connector' ); ?>
                         </span>
                     <?php endif; ?>
+                    <button type="button" class="dhc-btn dhc-btn-outline" id="dhc-refresh-connection" title="<?php esc_attr_e( 'Re-validate your API key connection', 'dsquared-hub-connector' ); ?>">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                        <?php esc_html_e( 'Refresh', 'dsquared-hub-connector' ); ?>
+                    </button>
                     <a href="https://hub.dsquaredmedia.net" target="_blank" class="dhc-btn dhc-btn-outline"><?php esc_html_e( 'Open Hub', 'dsquared-hub-connector' ); ?></a>
                 </div>
             </div>
@@ -601,6 +608,6 @@ class DHC_Admin {
      * Menu icon SVG
      */
     private static function get_menu_icon() {
-        return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><rect x="2" y="3" width="16" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5 7h4c2 0 3.5 1.5 3.5 3.5S11 14 9 14H5V7z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M13 7h3v3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>';
+        return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M10 4c-1 0-1.8 0.4-2.5 1C6.6 5.8 6 6.8 6 8c0 0.8 0.3 1.5 0.7 2.1C6.3 10.9 6 11.6 6 12.4c0 1.2 0.6 2.2 1.5 3 0.7 0.6 1.5 1 2.5 1s1.8-0.4 2.5-1c0.9-0.8 1.5-1.8 1.5-3 0-0.8-0.3-1.5-0.7-2.1 0.4-0.6 0.7-1.3 0.7-2.1 0-1.2-0.6-2.2-1.5-3C11.8 4.4 11 4 10 4z" fill="none" stroke="currentColor" stroke-width="1"/><line x1="6" y1="10.1" x2="14" y2="10.1" stroke="currentColor" stroke-width="0.8"/></svg>';
     }
 }

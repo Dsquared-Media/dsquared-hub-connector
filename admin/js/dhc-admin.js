@@ -124,6 +124,35 @@
         });
     });
 
+    // Refresh Connection (re-validate API key)
+    $(document).on('click', '#dhc-refresh-connection', function() {
+        var btn = $(this);
+        var originalHtml = btn.html();
+        btn.prop('disabled', true).html('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="dhc-spin"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg> Refreshing...');
+
+        var apiKey = $('#dhc-api-key').val() || '';
+        if (!apiKey) {
+            apiKey = $('input[type="password"]').first().val() || '';
+        }
+
+        $.post(dhcAdmin.ajaxUrl, {
+            action: 'dhc_validate_key',
+            nonce: dhcAdmin.nonce,
+            api_key: apiKey.trim()
+        }, function(response) {
+            btn.prop('disabled', false).html(originalHtml);
+            if (response.success) {
+                // Reload to show updated status
+                location.reload();
+            } else {
+                alert('Refresh failed: ' + (response.data || 'Could not validate key.'));
+            }
+        }).fail(function() {
+            btn.prop('disabled', false).html(originalHtml);
+            alert('Network error. Please try again.');
+        });
+    });
+
     // Clear activity log
     $(document).on('click', '#dhc-clear-log', function() {
         if (!confirm('Clear all activity log entries?')) return;

@@ -728,6 +728,15 @@
     text-decoration: underline;
 }
 
+/* ── Spin animation for refresh ── */
+@keyframes dhc-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.dhc-spin {
+    animation: dhc-spin 1s linear infinite;
+}
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
     .dhc-wrap {
