@@ -1,6 +1,7 @@
 <?php
 /**
  * DHC_Admin — Admin settings page styled to match the Hub backend
+ * SVG-free version: uses WordPress Dashicons to avoid conflicts with SVG Support plugin
  *
  * @package Dsquared_Hub_Connector
  */
@@ -24,7 +25,7 @@ class DHC_Admin {
     }
 
     /**
-     * Add the admin menu page
+     * Add the admin menu page — uses a built-in Dashicon instead of custom SVG
      */
     public static function add_menu_page() {
         add_menu_page(
@@ -33,7 +34,7 @@ class DHC_Admin {
             'manage_options',
             'dsquared-hub',
             array( __CLASS__, 'render_page' ),
-            'data:image/svg+xml;base64,' . base64_encode( self::get_menu_icon() ),
+            'dashicons-admin-site-alt3',
             30
         );
     }
@@ -46,6 +47,7 @@ class DHC_Admin {
             return;
         }
 
+        wp_enqueue_style( 'dashicons' );
         wp_enqueue_style( 'dhc-admin', DHC_PLUGIN_URL . 'admin/css/dhc-admin.css', array(), DHC_VERSION );
         wp_enqueue_style( 'dhc-google-fonts', 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap', array(), null );
 
@@ -75,14 +77,7 @@ class DHC_Admin {
             <div class="dhc-header">
                 <div class="dhc-header-left">
                     <div class="dhc-logo">
-                        <svg width="28" height="28" viewBox="0 0 40 40" fill="none">
-                            <rect width="40" height="40" rx="10" fill="#5661FF"/>
-                            <path d="M20 8c-1.5 0-2.8 0.6-3.8 1.5C15 10.6 14 12.2 14 14c0 1.2 0.4 2.3 1 3.2 -0.6 0.9-1 2-1 3.2 0 1.8 1 3.4 2.2 4.5 1 0.9 2.3 1.5 3.8 1.5s2.8-0.6 3.8-1.5C25 23.8 26 22.2 26 20.4c0-1.2-0.4-2.3-1-3.2 0.6-0.9 1-2 1-3.2 0-1.8-1-3.4-2.2-4.5C22.8 8.6 21.5 8 20 8z" fill="none" stroke="#fff" stroke-width="1.8"/>
-                            <path d="M14 17.2h12" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
-                            <circle cx="17" cy="13.5" r="1.2" fill="#fff"/>
-                            <circle cx="23" cy="13.5" r="1.2" fill="#fff"/>
-                            <path d="M17 21.5c0 0 1.5 2 3 2s3-2 3-2" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
-                        </svg>
+                        <span class="dhc-logo-icon" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;background:#5661FF;border-radius:7px;color:#fff;font-size:16px;font-weight:800;">D²</span>
                     </div>
                     <div>
                         <h1 class="dhc-title"><?php esc_html_e( 'Dsquared Hub Connector', 'dsquared-hub-connector' ); ?></h1>
@@ -107,7 +102,7 @@ class DHC_Admin {
                         </span>
                     <?php endif; ?>
                     <button type="button" class="dhc-btn dhc-btn-outline" id="dhc-refresh-connection" title="<?php esc_attr_e( 'Re-validate your API key connection', 'dsquared-hub-connector' ); ?>">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                        <span class="dashicons dashicons-update" style="font-size:14px;width:14px;height:14px;line-height:14px;"></span>
                         <?php esc_html_e( 'Refresh', 'dsquared-hub-connector' ); ?>
                     </button>
                     <a href="https://hub.dsquaredmedia.net" target="_blank" class="dhc-btn dhc-btn-outline"><?php esc_html_e( 'Open Hub', 'dsquared-hub-connector' ); ?></a>
@@ -116,7 +111,7 @@ class DHC_Admin {
 
             <?php if ( ! empty( $subscription['expired'] ) ) : ?>
             <div class="dhc-notice dhc-notice-warning">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <span class="dashicons dashicons-warning" style="font-size:20px;width:20px;height:20px;color:inherit;"></span>
                 <div>
                     <strong><?php esc_html_e( 'Your subscription has expired.', 'dsquared-hub-connector' ); ?></strong>
                     <?php esc_html_e( 'All Hub features are currently disabled, but your website is completely unaffected. Keeping an active subscription is suggested to maintain full functionality.', 'dsquared-hub-connector' ); ?>
@@ -134,7 +129,7 @@ class DHC_Admin {
                 <button class="dhc-tab" data-tab="activity"><?php esc_html_e( 'Activity Log', 'dsquared-hub-connector' ); ?></button>
             </div>
 
-            <!-- ═══ Connection Tab ═══ -->
+            <!-- Connection Tab -->
             <div class="dhc-tab-content active" id="tab-connection">
                 <div class="dhc-card">
                     <div class="dhc-card-header">
@@ -149,7 +144,7 @@ class DHC_Admin {
                                        value="<?php echo esc_attr( $api_key ); ?>"
                                        placeholder="<?php esc_attr_e( 'Enter your Hub API key', 'dsquared-hub-connector' ); ?>" autocomplete="off">
                                 <button type="button" class="dhc-btn dhc-btn-icon" id="dhc-toggle-key" title="<?php esc_attr_e( 'Show/hide key', 'dsquared-hub-connector' ); ?>">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    <span class="dashicons dashicons-visibility" style="font-size:18px;width:18px;height:18px;"></span>
                                 </button>
                             </div>
                             <p class="dhc-field-hint"><?php printf( esc_html__( 'Find your API key in %sHub &rarr; Account &rarr; API Keys%s', 'dsquared-hub-connector' ), '<a href="https://hub.dsquaredmedia.net/dashboard.html#account" target="_blank">', '</a>' ); ?></p>
@@ -200,14 +195,14 @@ class DHC_Admin {
                 <div class="dhc-card dhc-card-subtle">
                     <div class="dhc-card-body">
                         <div class="dhc-notice-inline">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                            <span class="dashicons dashicons-info" style="font-size:18px;width:18px;height:18px;color:#5661FF;flex-shrink:0;"></span>
                             <p><?php esc_html_e( 'If the plugin is disabled or your subscription lapses, it will not interrupt your website. Hub features will simply become unavailable until reactivated. Your content, schema markup, and SEO settings will be preserved. Keeping an active subscription is suggested for continued access to all features.', 'dsquared-hub-connector' ); ?></p>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- ═══ Modules Tab ═══ -->
+            <!-- Modules Tab -->
             <div class="dhc-tab-content" id="tab-modules">
                 <div class="dhc-modules-grid">
                     <?php
@@ -215,43 +210,43 @@ class DHC_Admin {
                         'auto_post' => array(
                             'name' => __( 'Auto-Post to Draft', 'dsquared-hub-connector' ),
                             'desc' => __( 'Receive blog content from the Hub and create WordPress draft posts automatically. Supports title, body, categories, tags, and featured images.', 'dsquared-hub-connector' ),
-                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+                            'dashicon' => 'dashicons-edit',
                             'tier' => 'Starter+',
                         ),
                         'schema' => array(
                             'name' => __( 'Schema Injector', 'dsquared-hub-connector' ),
                             'desc' => __( "Push JSON-LD structured data from the Hub's Schema Generator directly into your pages. Supports per-post and site-wide schemas.", 'dsquared-hub-connector' ),
-                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+                            'dashicon' => 'dashicons-editor-code',
                             'tier' => 'Growth+',
                         ),
                         'seo_meta' => array(
                             'name' => __( 'SEO Meta Sync', 'dsquared-hub-connector' ),
                             'desc' => __( "Sync optimized meta titles, descriptions, and OG data from the Hub's Page Optimizer. Compatible with Yoast, Rank Math, AIOSEO, and SEOPress.", 'dsquared-hub-connector' ),
-                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+                            'dashicon' => 'dashicons-search',
                             'tier' => 'Growth+',
                         ),
                         'site_health' => array(
                             'name' => __( 'Site Health Monitor', 'dsquared-hub-connector' ),
                             'desc' => __( 'Collect real-user Core Web Vitals (LCP, CLS, INP, TTFB, FCP) and report them to the Hub for monitoring. Lightweight ~2KB script.', 'dsquared-hub-connector' ),
-                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+                            'dashicon' => 'dashicons-heart',
                             'tier' => 'Pro',
                         ),
                         'ai_discovery' => array(
                             'name' => __( 'AI Discovery', 'dsquared-hub-connector' ),
                             'desc' => __( 'Generate an AI-readable business profile (llms.txt), inject LocalBusiness schema, and ping IndexNow when content changes so AI search engines know you exist.', 'dsquared-hub-connector' ),
-                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2z"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>',
+                            'dashicon' => 'dashicons-admin-site-alt3',
                             'tier' => 'Pro',
                         ),
                         'content_decay' => array(
                             'name' => __( 'Content Decay Alerts', 'dsquared-hub-connector' ),
                             'desc' => __( 'Monitor published posts for freshness and report stale content back to the Hub. Posts not updated in 6+ months get flagged for review.', 'dsquared-hub-connector' ),
-                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+                            'dashicon' => 'dashicons-clock',
                             'tier' => 'Growth+',
                         ),
                         'form_capture' => array(
                             'name' => __( 'Form Submission Capture', 'dsquared-hub-connector' ),
                             'desc' => __( 'Hook into popular form plugins to capture leads, filter spam in real-time, and send clean lead data to your Hub pipeline. No personal data stored locally.', 'dsquared-hub-connector' ),
-                            'icon' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>',
+                            'dashicon' => 'dashicons-groups',
                             'tier' => 'Pro',
                         ),
                     );
@@ -263,7 +258,7 @@ class DHC_Admin {
                     ?>
                     <div class="dhc-module-card <?php echo $is_available ? 'dhc-module-active' : ''; ?> <?php echo ! $tier_ok ? 'dhc-module-locked' : ''; ?>">
                         <div class="dhc-module-header">
-                            <div class="dhc-module-icon"><?php echo $module['icon']; ?></div>
+                            <div class="dhc-module-icon"><span class="dashicons <?php echo esc_attr( $module['dashicon'] ); ?>" style="font-size:24px;width:24px;height:24px;"></span></div>
                             <div class="dhc-module-meta">
                                 <h3><?php echo esc_html( $module['name'] ); ?></h3>
                                 <span class="dhc-tier-badge"><?php echo esc_html( $module['tier'] ); ?></span>
@@ -278,7 +273,7 @@ class DHC_Admin {
                         <p class="dhc-module-desc"><?php echo esc_html( $module['desc'] ); ?></p>
                         <?php if ( ! $tier_ok ) : ?>
                             <div class="dhc-module-upgrade">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                                <span class="dashicons dashicons-lock" style="font-size:14px;width:14px;height:14px;"></span>
                                 <?php esc_html_e( 'Upgrade your plan to unlock this module', 'dsquared-hub-connector' ); ?>
                             </div>
                         <?php endif; ?>
@@ -297,7 +292,7 @@ class DHC_Admin {
                 </div>
             </div>
 
-            <!-- ═══ AI Discovery Tab ═══ -->
+            <!-- AI Discovery Tab -->
             <div class="dhc-tab-content" id="tab-ai-discovery">
                 <div class="dhc-card">
                     <div class="dhc-card-header">
@@ -374,7 +369,7 @@ class DHC_Admin {
                 </div>
             </div>
 
-            <!-- ═══ Site Health Tab ═══ -->
+            <!-- Site Health Tab -->
             <div class="dhc-tab-content" id="tab-health">
                 <div class="dhc-card">
                     <div class="dhc-card-header">
@@ -407,7 +402,7 @@ class DHC_Admin {
                         <p class="dhc-cwv-count"><?php echo esc_html( number_format( $cwv_metrics['count'] ) ); ?> <?php esc_html_e( 'page loads measured', 'dsquared-hub-connector' ); ?></p>
                         <?php else : ?>
                         <div class="dhc-empty-state">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                            <span class="dashicons dashicons-heart" style="font-size:48px;width:48px;height:48px;opacity:0.4;"></span>
                             <p><?php esc_html_e( 'No Core Web Vitals data collected yet.', 'dsquared-hub-connector' ); ?></p>
                             <p class="dhc-text-muted"><?php esc_html_e( 'Data will appear once real users visit your site with the Site Health module enabled.', 'dsquared-hub-connector' ); ?></p>
                         </div>
@@ -416,7 +411,7 @@ class DHC_Admin {
                 </div>
             </div>
 
-            <!-- ═══ Activity Log Tab ═══ -->
+            <!-- Activity Log Tab -->
             <div class="dhc-tab-content" id="tab-activity">
                 <div class="dhc-card">
                     <div class="dhc-card-header">
@@ -440,7 +435,7 @@ class DHC_Admin {
                         </div>
                         <?php else : ?>
                         <div class="dhc-empty-state">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            <span class="dashicons dashicons-media-text" style="font-size:48px;width:48px;height:48px;opacity:0.4;"></span>
                             <p><?php esc_html_e( 'No activity recorded yet.', 'dsquared-hub-connector' ); ?></p>
                             <p class="dhc-text-muted"><?php esc_html_e( 'Actions from the Hub will appear here as they happen.', 'dsquared-hub-connector' ); ?></p>
                         </div>
@@ -565,19 +560,19 @@ class DHC_Admin {
     }
 
     /**
-     * Get activity icon SVG
+     * Get activity icon — uses Dashicons spans instead of inline SVG
      */
     private static function get_activity_icon( $action ) {
         $icons = array(
-            'auto_post'            => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5661FF" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
-            'schema_updated'       => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
-            'global_schema_updated' => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
-            'seo_meta_sync'        => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-            'ai_discovery'         => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" stroke-width="2"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2z"/><path d="M2 12h20"/></svg>',
-            'content_decay'        => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
-            'form_capture'         => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/></svg>',
+            'auto_post'             => '<span class="dashicons dashicons-edit" style="font-size:16px;width:16px;height:16px;color:#5661FF;"></span>',
+            'schema_updated'        => '<span class="dashicons dashicons-editor-code" style="font-size:16px;width:16px;height:16px;color:#22C55E;"></span>',
+            'global_schema_updated' => '<span class="dashicons dashicons-editor-code" style="font-size:16px;width:16px;height:16px;color:#22C55E;"></span>',
+            'seo_meta_sync'         => '<span class="dashicons dashicons-search" style="font-size:16px;width:16px;height:16px;color:#F59E0B;"></span>',
+            'ai_discovery'          => '<span class="dashicons dashicons-admin-site-alt3" style="font-size:16px;width:16px;height:16px;color:#8B5CF6;"></span>',
+            'content_decay'         => '<span class="dashicons dashicons-clock" style="font-size:16px;width:16px;height:16px;color:#EF4444;"></span>',
+            'form_capture'          => '<span class="dashicons dashicons-groups" style="font-size:16px;width:16px;height:16px;color:#06B6D4;"></span>',
         );
-        return $icons[ $action ] ?? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8892A8" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>';
+        return $icons[ $action ] ?? '<span class="dashicons dashicons-marker" style="font-size:16px;width:16px;height:16px;color:#8892A8;"></span>';
     }
 
     /**
@@ -602,12 +597,5 @@ class DHC_Admin {
             default:
                 return ucfirst( str_replace( '_', ' ', $entry['action'] ?? 'Unknown action' ) );
         }
-    }
-
-    /**
-     * Menu icon SVG
-     */
-    private static function get_menu_icon() {
-        return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none"><rect x="1" y="1" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M10 4c-1 0-1.8 0.4-2.5 1C6.6 5.8 6 6.8 6 8c0 0.8 0.3 1.5 0.7 2.1C6.3 10.9 6 11.6 6 12.4c0 1.2 0.6 2.2 1.5 3 0.7 0.6 1.5 1 2.5 1s1.8-0.4 2.5-1c0.9-0.8 1.5-1.8 1.5-3 0-0.8-0.3-1.5-0.7-2.1 0.4-0.6 0.7-1.3 0.7-2.1 0-1.2-0.6-2.2-1.5-3C11.8 4.4 11 4 10 4z" fill="none" stroke="currentColor" stroke-width="1"/><line x1="6" y1="10.1" x2="14" y2="10.1" stroke="currentColor" stroke-width="0.8"/></svg>';
     }
 }

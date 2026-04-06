@@ -1,5 +1,6 @@
 /**
  * Dsquared Hub Connector — Admin JavaScript
+ * SVG-free version: uses Dashicons to avoid SVG Support plugin conflicts
  */
 (function($) {
     'use strict';
@@ -16,12 +17,13 @@
     // Toggle API key visibility
     $(document).on('click', '#dhc-toggle-key', function() {
         var input = $('#dhc-api-key');
+        var icon = $(this).find('.dashicons');
         if (input.attr('type') === 'password') {
             input.attr('type', 'text');
-            $(this).find('svg').css('color', '#5661ff');
+            icon.css('color', '#5661ff');
         } else {
             input.attr('type', 'password');
-            $(this).find('svg').css('color', '');
+            icon.css('color', '');
         }
     });
 
@@ -124,11 +126,11 @@
         });
     });
 
-    // Refresh Connection (re-validate API key)
+    // Refresh Connection (re-validate API key) — uses Dashicons spinner instead of SVG
     $(document).on('click', '#dhc-refresh-connection', function() {
         var btn = $(this);
         var originalHtml = btn.html();
-        btn.prop('disabled', true).html('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="dhc-spin"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg> Refreshing...');
+        btn.prop('disabled', true).html('<span class="dashicons dashicons-update dhc-spin" style="font-size:14px;width:14px;height:14px;line-height:14px;"></span> Refreshing...');
 
         var apiKey = $('#dhc-api-key').val() || '';
         if (!apiKey) {
