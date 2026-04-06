@@ -3,7 +3,7 @@
  * Plugin Name:       Dsquared Hub Connector
  * Plugin URI:        https://hub.dsquaredmedia.net
  * Description:       Connect your WordPress site to Dsquared Media Hub — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, AI discovery, content decay alerts, and lead capture. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
- * Version:           1.5.2
+ * Version:           1.5.3
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Dsquared Media
@@ -19,12 +19,26 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Plugin constants ────────────────────────────────────────────────
-define( 'DHC_VERSION', '1.5.2' );
+define( 'DHC_VERSION', '1.5.3' );
 define( 'DHC_PLUGIN_FILE', __FILE__ );
 define( 'DHC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'DHC_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 define( 'DHC_HUB_API_BASE', 'https://hub.dsquaredmedia.net/api' );
+
+// ── SVG Support conflict protection ─────────────────────────────────
+// Some servers are missing the php-xml extension (DOMDocument class).
+// The SVG Support plugin crashes when it tries to sanitize SVGs without it.
+// We proactively disable its upload hooks during our plugin's lifecycle.
+if ( ! class_exists( 'DOMDocument' ) ) {
+    add_action( 'plugins_loaded', function() {
+        // Remove SVG Support's upload sanitization hooks that crash without DOMDocument
+        if ( function_exists( 'bodhi_svgs_sanitize_svg' ) ) {
+            remove_filter( 'wp_handle_upload_prefilter', 'bodhi_svgs_sanitize_svg' );
+            remove_filter( 'wp_handle_sideload_prefilter', 'bodhi_svgs_sanitize_svg' );
+        }
+    }, 0 ); // Priority 0 = run before everything else
+}
 
 // ── Compatibility checks ────────────────────────────────────────────
 if ( version_compare( PHP_VERSION, '7.4', '<' ) ) {
