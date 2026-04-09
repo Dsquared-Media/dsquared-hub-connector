@@ -43,12 +43,18 @@ class DHC_Auto_Post {
             );
         }
 
-        // Prepare post data — always create as draft
+        // Prepare post data — support draft or publish from Hub
+        $meta = $request->get_param( 'meta' );
+        $requested_status = 'draft';
+        if ( ! empty( $meta ) && is_array( $meta ) && ! empty( $meta['post_status'] ) ) {
+            $requested_status = in_array( $meta['post_status'], array( 'draft', 'publish', 'pending' ), true )
+                ? $meta['post_status'] : 'draft';
+        }
         $post_data = array(
             'post_title'   => $title,
             'post_content' => $content,
             'post_excerpt' => $excerpt,
-            'post_status'  => 'draft',
+            'post_status'  => $requested_status,
             'post_type'    => 'post',
             'post_author'  => self::get_default_author(),
             'meta_input'   => array(
@@ -119,12 +125,41 @@ class DHC_Auto_Post {
         // Log the action
         self::log_post_creation( $post_id, $title );
 
+        // Set slug if provided
+        if ( ! empty( $meta ) && is_array( $meta ) && ! empty( $meta['url_slug'] ) ) {
+            wp_update_post( array(
+                'ID'        => $post_id,
+                'post_name' => sanitize_title( $meta['url_slug'] ),
+            ) );
+        }
+
+        // Set Yoast/RankMath meta if available
+        if ( ! empty( $meta ) && is_array( $meta ) ) {
+            if ( ! empty( $meta['meta_description'] ) ) {
+                update_post_meta( $post_id, '_yoast_wpseo_metadesc', sanitize_text_field( $meta['meta_description'] ) );
+                update_post_meta( $post_id, 'rank_math_description', sanitize_text_field( $meta['meta_description'] ) );
+            }
+            if ( ! empty( $meta['primary_keyword'] ) ) {
+                update_post_meta( $post_id, '_yoast_wpseo_focuskw', sanitize_text_field( $meta['primary_keyword'] ) );
+                update_post_meta( $post_id, 'rank_math_focus_keyword', sanitize_text_field( $meta['primary_keyword'] ) );
+            }
+        }
+
+        // Log event to Hub
+        if ( class_exists( 'DHC_Event_Logger' ) ) {
+            DHC_Event_Logger::log( 'auto_post_created', array(
+                'post_id' => $post_id,
+                'title'   => $title,
+                'status'  => $requested_status,
+            ) );
+        }
+
         return new WP_REST_Response( array(
-            'success' => true,
-            'post_id' => $post_id,
-            'status'  => 'draft',
+            'success'  => true,
+            'post_id'  => $post_id,
+            'status'   => $requested_status,
             'edit_url' => admin_url( 'post.php?post=' . $post_id . '&action=edit' ),
-            'message' => 'Draft post created successfully. Review and publish from your WordPress editor.',
+            'message'  => ucfirst( $requested_status ) . ' post created successfully.',
         ), 201 );
     }
 
