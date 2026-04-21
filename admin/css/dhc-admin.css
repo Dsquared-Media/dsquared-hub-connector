@@ -288,14 +288,6 @@
     margin-bottom: 22px;
 }
 
-.dhc-field label {
-    display: block;
-    font-size: 14px;
-    font-weight: 600;
-    color: #1e293b;
-    margin-bottom: 8px;
-}
-
 .dhc-input-group {
     display: flex;
     gap: 10px;
@@ -303,24 +295,42 @@
 
 .dhc-input {
     flex: 1;
-    padding: 11px 16px;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #CBD5E1;
+    border-radius: 10px;
     font-size: 15px;
     font-family: inherit;
     color: #1e293b;
+    background: #F8FAFF;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    box-shadow: inset 0 1px 2px rgba(21, 28, 56, 0.03);
+}
+
+.dhc-input:hover {
+    border-color: #94A3B8;
     background: #fff;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .dhc-input:focus {
     outline: none;
-    border-color: #4f46e5;
-    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    border-color: #5660fe;
+    background: #fff;
+    box-shadow: 0 0 0 4px rgba(86, 96, 254, 0.15);
 }
 
 .dhc-input::placeholder {
-    color: #cbd5e1;
+    color: #94A3B8;
+    opacity: 1;
+}
+
+.dhc-field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+    color: #151c38;
+    margin-bottom: 6px;
+    letter-spacing: 0.01em;
 }
 
 .dhc-field-hint {

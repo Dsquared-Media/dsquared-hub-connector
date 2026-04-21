@@ -22,6 +22,7 @@ class DHC_Admin {
         add_action( 'wp_ajax_dhc_validate_key', array( __CLASS__, 'ajax_validate_key' ) );
         add_action( 'wp_ajax_dhc_clear_activity_log', array( __CLASS__, 'ajax_clear_log' ) );
         add_action( 'wp_ajax_dhc_save_ai_discovery', array( __CLASS__, 'ajax_save_ai_discovery' ) );
+        add_action( 'wp_ajax_dhc_scrape_website', array( __CLASS__, 'ajax_scrape_website' ) );
     }
 
     /**
@@ -316,6 +317,23 @@ class DHC_Admin {
                                 ); ?>
                             </div>
                         </div>
+                        <div class="dhc-sync-box">
+                            <div class="dhc-sync-box-left">
+                                <div class="dhc-sync-box-icon">
+                                    <span class="dashicons dashicons-search" style="font-size:20px;width:20px;height:20px;"></span>
+                                </div>
+                                <div>
+                                    <h3><?php esc_html_e( 'Scrape from Website', 'dsquared-hub-connector' ); ?></h3>
+                                    <p><?php esc_html_e( 'We\'ll read your homepage + contact/about pages and auto-fill the fields below from your site\'s own content. Fastest starting point for new setups.', 'dsquared-hub-connector' ); ?></p>
+                                </div>
+                            </div>
+                            <button type="button" class="dhc-btn-sync" id="dhc-scrape-website">
+                                <span class="dashicons dashicons-search" style="font-size:15px;width:15px;height:15px;line-height:15px;vertical-align:middle;margin-right:4px;"></span>
+                                <?php esc_html_e( 'Scrape homepage', 'dsquared-hub-connector' ); ?>
+                            </button>
+                        </div>
+                        <div id="dhc-scrape-status" class="dhc-status-msg" style="margin-bottom:12px;"></div>
+
                         <div class="dhc-sync-box">
                             <div class="dhc-sync-box-left">
                                 <div class="dhc-sync-box-icon">
@@ -643,5 +661,186 @@ class DHC_Admin {
             default:
                 return ucfirst( str_replace( '_', ' ', $entry['action'] ?? 'Unknown action' ) );
         }
+    }
+
+    /**
+     * AJAX handler: scrape homepage + about/contact pages and return
+     * inferred business profile fields. User reviews + saves.
+     *
+     * This runs against the WP site's own home_url() — it's the same
+     * server talking to itself, so no SSRF risk and no external auth.
+     */
+    public static function ajax_scrape_website() {
+        check_ajax_referer( 'dhc_admin', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => __( 'Permission denied.', 'dsquared-hub-connector' ) ) );
+        }
+
+        $home_url = home_url( '/' );
+        $profile  = array();
+
+        // Fetch the homepage — wp_remote_get runs through WordPress's HTTP
+        // API which honors filters and proxy settings.
+        $response = wp_remote_get( $home_url, array( 'timeout' => 12, 'redirection' => 3 ) );
+        if ( is_wp_error( $response ) ) {
+            wp_send_json_error( array( 'message' => 'Homepage fetch failed: ' . $response->get_error_message() ) );
+        }
+        $html = wp_remote_retrieve_body( $response );
+        if ( empty( $html ) ) {
+            wp_send_json_error( array( 'message' => __( 'Homepage returned empty response.', 'dsquared-hub-connector' ) ) );
+        }
+
+        // Parse with DOMDocument — suppress parse warnings for malformed HTML.
+        if ( ! class_exists( 'DOMDocument' ) ) {
+            wp_send_json_error( array( 'message' => __( 'Server is missing PHP DOM extension. Ask your host to install php-xml.', 'dsquared-hub-connector' ) ) );
+        }
+        libxml_use_internal_errors( true );
+        $doc = new DOMDocument();
+        $doc->loadHTML( '<?xml encoding="UTF-8">' . $html );
+        libxml_clear_errors();
+        $xpath = new DOMXPath( $doc );
+
+        // ── Business name ──
+        // Priority: og:site_name → site title → <h1> → blogname option
+        $og_name = self::_meta_content( $xpath, 'og:site_name' );
+        $title   = $xpath->query( '//head/title' )->item( 0 );
+        $h1      = $xpath->query( '//h1' )->item( 0 );
+        $profile['business_name'] = $og_name
+            ?: ( $title ? self::_clean_title( trim( $title->textContent ) ) : '' )
+            ?: ( $h1 ? trim( $h1->textContent ) : '' )
+            ?: get_bloginfo( 'name' );
+
+        // ── Description ──
+        // Priority: og:description → meta description → first paragraph > 80 chars
+        $og_desc   = self::_meta_content( $xpath, 'og:description' );
+        $meta_desc = self::_meta_content( $xpath, null, 'description' );
+        $profile['description'] = $og_desc ?: $meta_desc;
+        if ( empty( $profile['description'] ) ) {
+            $paras = $xpath->query( '//p' );
+            foreach ( $paras as $p ) {
+                $text = trim( preg_replace( '/\s+/', ' ', $p->textContent ) );
+                if ( strlen( $text ) >= 80 && strlen( $text ) <= 400 ) {
+                    $profile['description'] = $text;
+                    break;
+                }
+            }
+        }
+
+        // ── Services ──
+        // Heuristic: look for repeated list items or h2/h3 groups under a
+        // services / what-we-do section. Take short, title-case phrases.
+        $services = array();
+        $service_nodes = $xpath->query(
+            '//section[contains(translate(@id, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "service") or contains(translate(@class, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "service")]//h2|//section[contains(translate(@id, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "service") or contains(translate(@class, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "service")]//h3'
+        );
+        foreach ( $service_nodes as $node ) {
+            $text = trim( preg_replace( '/\s+/', ' ', $node->textContent ) );
+            if ( $text && strlen( $text ) < 80 && strlen( $text ) > 3 ) {
+                $services[] = $text;
+            }
+        }
+        $services = array_slice( array_values( array_unique( $services ) ), 0, 12 );
+        if ( ! empty( $services ) ) {
+            $profile['services_text'] = implode( "\n", $services );
+        }
+
+        // ── Phone + Email ──
+        // Regex scan the rendered text and surface the first clean match.
+        $text_content = wp_strip_all_tags( $html );
+        if ( preg_match( '/(\(?\+?1?\)?[-\s.]*\(?\d{3}\)?[-\s.]*\d{3}[-\s.]*\d{4})/', $text_content, $m ) ) {
+            $profile['phone'] = trim( $m[1] );
+        }
+        if ( preg_match( '/([a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,})/i', $text_content, $m ) ) {
+            // Filter out obvious privacy/webmaster addresses.
+            $candidate = strtolower( $m[1] );
+            if ( ! preg_match( '/^(no-?reply|webmaster|postmaster|admin|hostmaster|abuse|privacy)@/i', $candidate ) ) {
+                $profile['email'] = $candidate;
+            }
+        }
+
+        // ── Address ──
+        // schema.org LocalBusiness JSON-LD is the most reliable signal.
+        $jsonlds = $xpath->query( '//script[@type="application/ld+json"]' );
+        foreach ( $jsonlds as $script ) {
+            $data = json_decode( $script->textContent, true );
+            if ( ! is_array( $data ) ) continue;
+            $nodes = isset( $data['@graph'] ) && is_array( $data['@graph'] ) ? $data['@graph'] : array( $data );
+            foreach ( $nodes as $node ) {
+                if ( ! is_array( $node ) ) continue;
+                $type = $node['@type'] ?? '';
+                if ( is_array( $type ) ) $type = implode( ',', $type );
+                if ( stripos( $type, 'LocalBusiness' ) === false
+                    && stripos( $type, 'Organization' ) === false
+                    && stripos( $type, 'ProfessionalService' ) === false ) continue;
+                if ( empty( $profile['business_name'] ) && ! empty( $node['name'] ) ) {
+                    $profile['business_name'] = (string) $node['name'];
+                }
+                if ( empty( $profile['phone'] ) && ! empty( $node['telephone'] ) ) {
+                    $profile['phone'] = (string) $node['telephone'];
+                }
+                if ( empty( $profile['email'] ) && ! empty( $node['email'] ) ) {
+                    $profile['email'] = (string) $node['email'];
+                }
+                if ( empty( $profile['address'] ) && ! empty( $node['address'] ) && is_array( $node['address'] ) ) {
+                    $addr   = $node['address'];
+                    $parts  = array_filter( array(
+                        $addr['streetAddress']   ?? '',
+                        $addr['addressLocality'] ?? '',
+                        ( $addr['addressRegion'] ?? '' ) . ' ' . ( $addr['postalCode'] ?? '' ),
+                    ) );
+                    if ( ! empty( $parts ) ) $profile['address'] = trim( implode( ', ', array_map( 'trim', $parts ) ) );
+                }
+                if ( empty( $profile['hours'] ) && ! empty( $node['openingHours'] ) ) {
+                    $hours = is_array( $node['openingHours'] ) ? implode( '; ', $node['openingHours'] ) : (string) $node['openingHours'];
+                    $profile['hours'] = $hours;
+                }
+                if ( empty( $profile['service_areas_text'] ) && ! empty( $node['areaServed'] ) && is_array( $node['areaServed'] ) ) {
+                    $areas = array();
+                    foreach ( $node['areaServed'] as $a ) {
+                        if ( is_string( $a ) ) { $areas[] = $a; continue; }
+                        if ( is_array( $a ) && ! empty( $a['name'] ) ) { $areas[] = (string) $a['name']; }
+                    }
+                    if ( ! empty( $areas ) ) $profile['service_areas_text'] = implode( "\n", $areas );
+                }
+            }
+        }
+
+        // Return whatever we found; the JS side only fills empty fields.
+        wp_send_json_success( array(
+            'profile' => $profile,
+            'source'  => 'homepage',
+            'url'     => $home_url
+        ) );
+    }
+
+    /**
+     * Helper: pull a meta tag's content attribute.
+     * Matches either <meta property="$property"> or <meta name="$name">.
+     */
+    private static function _meta_content( $xpath, $property = null, $name = null ) {
+        if ( $property ) {
+            $node = $xpath->query( "//meta[@property='" . esc_attr( $property ) . "']/@content" )->item( 0 );
+            if ( $node ) return trim( $node->nodeValue );
+        }
+        if ( $name ) {
+            $node = $xpath->query( "//meta[@name='" . esc_attr( $name ) . "']/@content" )->item( 0 );
+            if ( $node ) return trim( $node->nodeValue );
+        }
+        return '';
+    }
+
+    /**
+     * Helper: strip "| Site Name" trailing separators from a <title> string.
+     */
+    private static function _clean_title( $title ) {
+        // Handles "Homepage - Site Name", "Home | Site Name", "Site Name - Tagline"
+        $parts = preg_split( '/\s*[\|\-–—·»]\s*/u', $title );
+        if ( empty( $parts ) ) return $title;
+        // Pick the longest segment that isn't "Home" / "Welcome"
+        usort( $parts, function( $a, $b ) { return strlen( $b ) - strlen( $a ); } );
+        foreach ( $parts as $p ) {
+            if ( ! preg_match( '/^(home|welcome|homepage)$/i', trim( $p ) ) ) return trim( $p );
+        }
+        return $title;
     }
 }

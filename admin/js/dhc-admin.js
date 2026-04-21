@@ -175,6 +175,55 @@
         });
     });
 
+    // ── Scrape homepage (AI Discovery auto-populate from site content) ──
+    $(document).on('click', '#dhc-scrape-website', function() {
+        var btn = $(this);
+        var status = $('#dhc-scrape-status');
+        var originalHtml = btn.html();
+
+        btn.prop('disabled', true).html('<span class="dashicons dashicons-update dhc-spin" style="font-size:14px;width:14px;height:14px;line-height:14px;"></span> Scraping…');
+        status.text('').removeClass('success error');
+
+        $.post(dhcAdmin.ajaxUrl, {
+            action: 'dhc_scrape_website',
+            nonce: dhcAdmin.nonce
+        }, function(response) {
+            btn.prop('disabled', false).html(originalHtml);
+            if (response.success) {
+                var p = response.data.profile || {};
+                var filled = [];
+                // Only fill empty fields so we never overwrite manual input.
+                function setIfEmpty(selector, value, label) {
+                    if (!value) return;
+                    var el = $(selector);
+                    if (el.val()) return;
+                    el.val(value);
+                    filled.push(label);
+                }
+                setIfEmpty('#dhc-biz-name', p.business_name, 'name');
+                setIfEmpty('#dhc-biz-desc', p.description, 'description');
+                setIfEmpty('#dhc-biz-services', p.services_text, 'services');
+                setIfEmpty('#dhc-biz-phone', p.phone, 'phone');
+                setIfEmpty('#dhc-biz-email', p.email, 'email');
+                setIfEmpty('#dhc-biz-address', p.address, 'address');
+                setIfEmpty('#dhc-biz-areas', p.service_areas_text, 'service areas');
+                setIfEmpty('#dhc-biz-hours', p.hours, 'hours');
+                setIfEmpty('#dhc-biz-extra', p.extra_info, 'additional info');
+                var msg = filled.length
+                    ? 'Pulled ' + filled.length + ' field' + (filled.length === 1 ? '' : 's') + ' from your homepage: ' + filled.join(', ') + '. Review and save when ready.'
+                    : 'Scrape finished but we didn\'t find new data (fields already filled, or page is thin on structured info).';
+                status.text(msg).addClass('success').removeClass('error');
+                setTimeout(function() { status.text(''); }, 12000);
+            } else {
+                var errMsg = (response.data && response.data.message) || response.data || 'Scrape failed. Make sure the homepage is publicly reachable.';
+                status.text(errMsg).addClass('error').removeClass('success');
+            }
+        }).fail(function() {
+            btn.prop('disabled', false).html(originalHtml);
+            status.text('Network error. Is the site reachable from this server?').addClass('error');
+        });
+    });
+
     // ── Sync from Hub (AI Discovery auto-populate) ──────────────
     $(document).on('click', '#dhc-sync-from-hub', function() {
         var btn = $(this);

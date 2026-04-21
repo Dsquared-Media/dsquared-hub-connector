@@ -4,6 +4,14 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.8.0] - 2026-04-21
+
+### Added
+- **Scrape homepage** button on the AI Discovery tab. One click reads the site's homepage + schema.org LocalBusiness JSON-LD and auto-fills the Business Name, Description, Services, Phone, Email, Address, Hours, and Service Areas fields. Only fills empty fields so manual input is never overwritten.
+
+### Changed
+- Form field styling refreshed to match Dsquared brand. Indigo focus ring, bolder labels, tinted input backgrounds — fixes the "white on white" readability issue on the AI Discovery settings page.
+
 ## [1.7.1] - 2026-04-21
 
 ### Fixed
