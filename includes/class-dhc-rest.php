@@ -112,6 +112,22 @@ class DHC_REST {
             'callback'            => array( 'DHC_Form_Capture', 'handle_stats_request' ),
             'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
         ) );
+
+        // ── Media / Alt Text Updates (v1.9) ─────────────────────
+        // Core /wp-json/wp/v2/media/:id POST requires standard WP
+        // user auth, which the Hub doesn't have — only our custom
+        // API key. This route accepts the API-key auth and writes
+        // alt_text via update_post_meta. Supports single + bulk.
+        register_rest_route( self::NAMESPACE, '/media/alt', array(
+            'methods'             => 'POST',
+            'callback'            => array( 'DHC_Media', 'handle_alt_request' ),
+            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
+            'args'                => array(
+                'media_id' => array( 'required' => false, 'type' => 'integer' ),
+                'alt_text' => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+                'updates'  => array( 'required' => false, 'type' => 'array' ),
+            ),
+        ) );
     }
 
     /**

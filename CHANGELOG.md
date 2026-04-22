@@ -4,6 +4,15 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.0] - 2026-04-22
+
+### Added
+- **Alt Text push endpoint** — new `POST /dsquared-hub/v1/media/alt` route that lets the Hub write `alt_text` to WordPress media attachments using the existing `X-DHC-API-Key` header. Supports single updates (`{ media_id, alt_text }`) and bulk batches up to 50 per call (`{ updates: [...] }`). Fixes the silent failure where the Hub's Alt Text Generator appeared to push but nothing updated — the Hub was hitting core `/wp-json/wp/v2/media/:id`, which WordPress doesn't authenticate with our custom header (it needs Application Password or cookie+nonce). This new route uses the same plugin-authenticated pattern as `/seo-meta` and `/schema`.
+- Writes alt text via `update_post_meta( $id, '_wp_attachment_image_alt', $alt )`. Sanitizes input and caps at 250 chars. Treats "new value equals existing value" as a successful no-op rather than a failure. Logs the aggregate event to the plugin's Event Log so admins can see push activity.
+
+### Gating
+- The alt-text endpoint rides the `seo_meta` subscription-module flag — if you have SEO Meta Sync, you have alt-text push.
+
 ## [1.8.1] - 2026-04-21
 
 ### Fixed

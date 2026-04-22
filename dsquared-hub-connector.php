@@ -3,7 +3,7 @@
  * Plugin Name:       Dsquared Hub Connector
  * Plugin URI:        https://hub.dsquaredmedia.net
  * Description:       Connect your WordPress site to Dsquared Media Hub — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, AI discovery, content decay alerts, and lead capture. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
- * Version:           1.8.1
+ * Version:           1.9.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Dsquared Media
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Plugin constants ────────────────────────────────────────────────
-define( 'DHC_VERSION', '1.8.1' );
+define( 'DHC_VERSION', '1.9.0' );
 define( 'DHC_PLUGIN_FILE', __FILE__ );
 define( 'DHC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -72,6 +72,9 @@ require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-site-health.php';
 require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-ai-discovery.php';
 require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-content-decay.php';
 require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-form-capture.php';
+
+// v1.9 Modules
+require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-media.php';
 
 // ── Activation hook ─────────────────────────────────────────────────
 function dhc_activate() {
