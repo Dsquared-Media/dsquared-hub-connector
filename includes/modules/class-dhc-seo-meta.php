@@ -312,4 +312,92 @@ class DHC_SEO_Meta {
         );
         update_option( 'dhc_activity_log', $log );
     }
+
+    /**
+     * v1.10: Bulk meta rescue. Accepts up to 100 updates per call
+     * and re-dispatches each through handle_request() so SEO-plugin
+     * detection + fallback logic stays consistent. Per-item errors
+     * are returned inline — the batch only 500s if auth/module gate
+     * fails.
+     */
+    const BULK_MAX = 100;
+
+    public static function handle_bulk_request( $request ) {
+        if ( ! DHC_API_Key::is_module_available( 'seo_meta' ) ) {
+            return new WP_Error(
+                'dhc_module_unavailable',
+                'SEO Meta Sync module is not available on your current subscription tier.',
+                array( 'status' => 403 )
+            );
+        }
+        $updates = $request->get_param( 'updates' );
+        if ( ! is_array( $updates ) || empty( $updates ) ) {
+            return new WP_Error( 'dhc_missing_updates', 'updates[] is required.', array( 'status' => 400 ) );
+        }
+        if ( count( $updates ) > self::BULK_MAX ) {
+            return new WP_Error(
+                'dhc_too_many_updates',
+                'Max ' . self::BULK_MAX . ' updates per call. Split into smaller batches.',
+                array( 'status' => 400 )
+            );
+        }
+
+        $results    = array();
+        $successful = 0;
+        $failed     = 0;
+
+        foreach ( $updates as $u ) {
+            $post_id = isset( $u['post_id'] ) ? (int) $u['post_id'] : 0;
+            $url     = isset( $u['url'] ) ? (string) $u['url'] : '';
+            if ( ! $post_id && $url ) {
+                $post_id = url_to_postid( $url );
+            }
+            if ( ! $post_id ) {
+                $results[] = array( 'success' => false, 'error' => 'Missing post_id / url', 'post_id' => null );
+                $failed++; continue;
+            }
+            // Fabricate a sub-request so handle_request() can reuse its
+            // normal param-read + SEO-plugin-detect flow.
+            $sub_req = new WP_REST_Request( 'POST' );
+            $sub_req->set_param( 'post_id', $post_id );
+            if ( isset( $u['meta_title'] ) )       $sub_req->set_param( 'meta_title',       sanitize_text_field( $u['meta_title'] ) );
+            if ( isset( $u['meta_description'] ) ) $sub_req->set_param( 'meta_description', sanitize_textarea_field( $u['meta_description'] ) );
+            if ( isset( $u['focus_keyword'] ) )    $sub_req->set_param( 'focus_keyword',    sanitize_text_field( $u['focus_keyword'] ) );
+            if ( isset( $u['og_title'] ) )         $sub_req->set_param( 'og_title',         sanitize_text_field( $u['og_title'] ) );
+            if ( isset( $u['og_description'] ) )   $sub_req->set_param( 'og_description',   sanitize_textarea_field( $u['og_description'] ) );
+
+            $r = self::handle_request( $sub_req );
+            if ( is_wp_error( $r ) ) {
+                $results[] = array(
+                    'success' => false,
+                    'post_id' => $post_id,
+                    'error'   => $r->get_error_message(),
+                );
+                $failed++;
+            } else {
+                $data = is_a( $r, 'WP_REST_Response' ) ? $r->get_data() : (array) $r;
+                $results[] = array_merge(
+                    array( 'success' => true, 'post_id' => $post_id ),
+                    (array) $data
+                );
+                $successful++;
+            }
+        }
+
+        DHC_Event_Logger::log( 'seo_meta_bulk', array(
+            'total'      => count( $updates ),
+            'successful' => $successful,
+            'failed'     => $failed,
+        ) );
+
+        return new WP_REST_Response( array(
+            'success' => true,
+            'results' => $results,
+            'summary' => array(
+                'total'   => count( $updates ),
+                'updated' => $successful,
+                'failed'  => $failed,
+            ),
+        ), 200 );
+    }
 }

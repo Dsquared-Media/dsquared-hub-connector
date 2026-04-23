@@ -3,7 +3,7 @@
  * Plugin Name:       Dsquared Hub Connector
  * Plugin URI:        https://hub.dsquaredmedia.net
  * Description:       Connect your WordPress site to Dsquared Media Hub — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, AI discovery, content decay alerts, and lead capture. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
- * Version:           1.9.1
+ * Version:           1.10.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Dsquared Media
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Plugin constants ────────────────────────────────────────────────
-define( 'DHC_VERSION', '1.9.1' );
+define( 'DHC_VERSION', '1.10.0' );
 define( 'DHC_PLUGIN_FILE', __FILE__ );
 define( 'DHC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -76,6 +76,12 @@ require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-form-capture.php';
 // v1.9 Modules
 require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-media.php';
 
+// v1.10 Modules
+require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-posts.php';
+require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-inventory.php';
+require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-analytics.php';
+require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-link-scanner.php';
+
 // ── Activation hook ─────────────────────────────────────────────────
 function dhc_activate() {
     // WordPress version check
@@ -131,6 +137,10 @@ function dhc_activate() {
         wp_schedule_event( time(), DHC_Heartbeat::INTERVAL_NAME, DHC_Heartbeat::CRON_HOOK );
     }
 
+    // v1.10: schedule daily inventory push + weekly link scan
+    if ( class_exists( 'DHC_Inventory' ) )    DHC_Inventory::schedule();
+    if ( class_exists( 'DHC_Link_Scanner' ) ) DHC_Link_Scanner::schedule();
+
     // Attempt AI Discovery auto-populate from Hub (deferred to avoid blocking activation)
     wp_schedule_single_event( time() + 10, 'dhc_auto_populate_profile' );
 
@@ -159,6 +169,9 @@ function dhc_deactivate() {
         'dhc_monthly_lead_reset',
         DHC_Heartbeat::CRON_HOOK,
         'dhc_auto_populate_profile',
+        // v1.10 cron hooks
+        DHC_Inventory::CRON_HOOK,
+        DHC_Link_Scanner::CRON_HOOK,
     );
     foreach ( $crons as $hook ) {
         $timestamp = wp_next_scheduled( $hook );
@@ -199,6 +212,19 @@ register_deactivation_hook( __FILE__, 'dhc_deactivate' );
 function dhc_init() {
     DHC_Core::get_instance();
 
+    // v1.10 module hooks — register cron actions + analytics injection
+    if ( class_exists( 'DHC_Inventory' ) )    DHC_Inventory::init();
+    if ( class_exists( 'DHC_Analytics' ) )    DHC_Analytics::init();
+    if ( class_exists( 'DHC_Link_Scanner' ) ) DHC_Link_Scanner::init();
+
+    // Self-heal crons on every admin load — if another plugin or a
+    // migration cleared them, they'll come back next time an admin
+    // loads any page. Cheap: wp_next_scheduled is a single option read.
+    add_action( 'admin_init', function() {
+        if ( class_exists( 'DHC_Inventory' ) )    DHC_Inventory::schedule();
+        if ( class_exists( 'DHC_Link_Scanner' ) ) DHC_Link_Scanner::schedule();
+    } );
+
     // Auto-flush rewrite rules when the plugin version changes.
     // Without this, new rewrite rules (like /llms.txt) don't take effect
     // after an auto-update because the activation hook isn't re-run.
@@ -206,6 +232,10 @@ function dhc_init() {
     if ( $installed !== DHC_VERSION ) {
         flush_rewrite_rules( false );
         update_option( 'dhc_installed_version', DHC_VERSION );
+        // First-load after upgrade: fire the new crons so users see
+        // data in the Link Scanner sub-page immediately after update.
+        if ( class_exists( 'DHC_Inventory' ) )    DHC_Inventory::schedule();
+        if ( class_exists( 'DHC_Link_Scanner' ) ) DHC_Link_Scanner::schedule();
     }
 }
 add_action( 'plugins_loaded', 'dhc_init' );

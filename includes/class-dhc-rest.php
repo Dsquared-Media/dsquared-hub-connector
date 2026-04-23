@@ -128,6 +128,47 @@ class DHC_REST {
                 'updates'  => array( 'required' => false, 'type' => 'array' ),
             ),
         ) );
+
+        // ── Post Content Update (v1.10) ─────────────────────────
+        // Closes the AutoReason loop. The Hub ships a winning body
+        // rewrite and this route replaces post_content via
+        // wp_update_post() which auto-creates a WP revision for
+        // rollback via the core revisions UI.
+        register_rest_route( self::NAMESPACE, '/posts/content', array(
+            'methods'             => 'POST',
+            'callback'            => array( 'DHC_Posts', 'handle_content_update' ),
+            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
+            'args'                => array(
+                'post_id'      => array( 'required' => false, 'type' => 'integer' ),
+                'url'          => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'esc_url_raw' ),
+                'content_html' => array( 'required' => true,  'type' => 'string' ),
+                'post_title'   => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+                'revision_note'=> array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+                'dry_run'      => array( 'required' => false, 'type' => 'boolean' ),
+            ),
+        ) );
+
+        // ── Bulk SEO Meta (v1.10) ──────────────────────────────
+        // Up to 100 meta_title + meta_description updates per call.
+        // Mirrors the bulk alt-text pattern. One HTTP trip for a
+        // whole site's meta rescue instead of N per-page calls.
+        register_rest_route( self::NAMESPACE, '/seo-meta/bulk', array(
+            'methods'             => 'POST',
+            'callback'            => array( 'DHC_SEO_Meta', 'handle_bulk_request' ),
+            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
+            'args'                => array(
+                'updates' => array( 'required' => true, 'type' => 'array' ),
+            ),
+        ) );
+
+        // ── Link Scanner — list 404s + broken links (v1.10) ────
+        // Returns recent findings so the Hub's Today widget can
+        // surface them. Writes happen inside the plugin's cron jobs.
+        register_rest_route( self::NAMESPACE, '/link-scan', array(
+            'methods'             => 'GET',
+            'callback'            => array( 'DHC_Link_Scanner', 'handle_list_request' ),
+            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
+        ) );
     }
 
     /**

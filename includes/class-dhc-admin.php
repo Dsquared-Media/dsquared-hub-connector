@@ -38,13 +38,49 @@ class DHC_Admin {
             'dashicons-admin-site-alt3',
             30
         );
+        // Main page as first sub-item so the parent "Dsquared Hub" link
+        // doesn't show as clickable-but-landing-in-a-weird-place.
+        add_submenu_page(
+            'dsquared-hub',
+            esc_html__( 'Connection', 'dsquared-hub-connector' ),
+            esc_html__( 'Connection', 'dsquared-hub-connector' ),
+            'manage_options',
+            'dsquared-hub',
+            array( __CLASS__, 'render_page' )
+        );
+        // v1.10 — Link Scanner sub-page
+        if ( class_exists( 'DHC_Link_Scanner' ) ) {
+            add_submenu_page(
+                'dsquared-hub',
+                esc_html__( 'Link Scanner', 'dsquared-hub-connector' ),
+                esc_html__( 'Link Scanner', 'dsquared-hub-connector' ),
+                'manage_options',
+                'dsquared-hub-links',
+                array( 'DHC_Link_Scanner', 'render_admin_page' )
+            );
+        }
+        // v1.10 — Analytics sub-page (GA4 + GTM injection)
+        if ( class_exists( 'DHC_Analytics' ) ) {
+            add_submenu_page(
+                'dsquared-hub',
+                esc_html__( 'Analytics', 'dsquared-hub-connector' ),
+                esc_html__( 'Analytics', 'dsquared-hub-connector' ),
+                'manage_options',
+                'dsquared-hub-analytics',
+                array( 'DHC_Analytics', 'render_admin_page' )
+            );
+        }
     }
 
     /**
      * Enqueue admin CSS and JS
      */
     public static function enqueue_assets( $hook ) {
-        if ( 'toplevel_page_dsquared-hub' !== $hook ) {
+        // Our main page + sub-pages all share the same CSS shell. Match
+        // by prefix so additional sub-pages (Link Scanner and any future
+        // ones) pick up the styles without touching this method.
+        $is_our_page = ( strpos( $hook, 'dsquared-hub' ) !== false );
+        if ( ! $is_our_page ) {
             return;
         }
 

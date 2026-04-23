@@ -4,6 +4,36 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.10.0] - 2026-04-23
+
+### Added
+- **Body content push** — new `POST /dsquared-hub/v1/posts/content` endpoint that accepts `{post_id|url, content_html, post_title?, revision_note?, dry_run?}` and applies the update via `wp_update_post()`. Core WP auto-creates a revision, so rollback is available via Posts → Edit → Revisions. Closes the AutoReason loop in the Hub — winning body rewrites can now ship directly to WP without copy-paste. Accepts `wp_kses_post`-safe HTML; scripts + event handlers stripped. Gated on `seo_meta` subscription module.
+- **Bulk SEO meta rescue** — new `POST /dsquared-hub/v1/seo-meta/bulk` endpoint that accepts up to 100 `{post_id|url, meta_title?, meta_description?, ...}` updates per call. Mirrors the v1.9.0 bulk alt-text pattern. Per-item errors are returned inline; the batch only 500s if auth or the module gate fails. Re-uses the single-item SEO-plugin-detect + fallback logic so Yoast / Rank Math / AIOSEO / SEOPress behavior is consistent.
+- **Daily site inventory push** — new `DHC_Inventory` module pushes a snapshot of the site to the Hub once a day via WP-Cron:
+  - Post / page / attachment / comment counts
+  - Last 10 publishes from the previous 14 days
+  - Active theme name + version + parent
+  - Active plugins with version, author, WP/PHP requirements
+  - WP version, PHP version, MySQL version, memory limit, upload max, disk free
+  - Cache plugin detected (WP Rocket / W3TC / LiteSpeed / WP Fastest / Autoptimize / WP Engine)
+  - Multisite / HTTPS / debug flags
+  Hub side receives at `POST /api/plugin/inventory` and persists in `plugin_site_inventory` — one row per (user, site_url) always holding the latest. Unlocks "what changed on your site this week" in the Hub's Today widget + plugin-conflict diagnosis + caching-off alerts.
+- **GA4 + GTM injection** — new `DHC_Analytics` module. Paste your GA4 Measurement ID (`G-XXXXXXXXXX`) and/or GTM Container ID (`GTM-XXXXXXX`) on the new **Dsquared Hub → Analytics** sub-page. The plugin injects the correct snippets on `wp_head` (gtag + GTM head) and after `wp_body_open` (GTM noscript), with admin / feed / REST / AJAX requests automatically skipped. Format-validates IDs on save. Removes the "install GA4 correctly without editing functions.php or using Site Kit" support task.
+- **Link Scanner sub-page** (new nav item **Dsquared Hub → Link Scanner**) with two complementary features:
+  - **404 logger** — hooks `template_redirect`, buckets 404s by path (increments count on repeats instead of spamming), filters bot user-agents, captures referer + last-seen timestamp. Shows the top-50 paths sorted by hit count in the admin UI.
+  - **Weekly broken-link scanner** — `wp-cron` job iterates the 200 most-recently-modified posts + pages, extracts `<a href>` URLs, HEAD-pings each (falls back to GET on 405/501), and records any 4xx/5xx + connection failures with the source post. De-dupes URLs across posts so the same URL is only checked once per run. Up to 500 findings retained.
+  - Admin UI has **Scan now** + **Clear log** actions.
+  - Also exposed at `GET /dsquared-hub/v1/link-scan` so the Hub's Today widget can surface findings.
+
+### Changed
+- Admin menu now has proper sub-menu pages under **Dsquared Hub**: Connection (main) / Link Scanner / Analytics. Asset enqueue matches sub-pages by prefix so future additions pick up the styles automatically.
+- Activation + admin_init both self-heal the new cron schedules (daily inventory, weekly link scan) so a cleared or migrated cron table recovers on the next admin page load.
+
+### Gating
+- Body content push + bulk meta ride the `seo_meta` subscription module flag (same as the existing single-item meta endpoint).
+- Link Scanner API endpoint gates on `site_health`.
+- Analytics injection is not subscription-gated — pure utility.
+
 ## [1.9.1] - 2026-04-23
 
 ### Changed
