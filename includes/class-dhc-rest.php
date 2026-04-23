@@ -25,6 +25,19 @@ class DHC_REST {
             'permission_callback' => '__return_true',
         ) );
 
+        // ── Loopback fetch-page (bypasses Cloudflare) ──────────
+        // Hub crawler calls this to pull page HTML from the WP server
+        // itself, avoiding any CDN/WAF in front of the site. Guarded
+        // by X-DHC-API-Key + same-origin URL check.
+        register_rest_route( self::NAMESPACE, '/fetch-page', array(
+            'methods'             => 'POST',
+            'callback'            => array( __CLASS__, 'handle_fetch_page' ),
+            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
+            'args'                => array(
+                'url' => array( 'required' => true, 'type' => 'string', 'sanitize_callback' => 'esc_url_raw' ),
+            ),
+        ) );
+
         // ── Auto-Post endpoint ──────────────────────────────────
         register_rest_route( self::NAMESPACE, '/post', array(
             'methods'             => 'POST',
@@ -177,6 +190,79 @@ class DHC_REST {
      * @param WP_REST_Request $request
      * @return WP_REST_Response
      */
+    /**
+     * Fetch a page from this WordPress site and return its rendered HTML.
+     *
+     * Used by the Hub's audit crawler to bypass Cloudflare / Sucuri / other
+     * bot-protection layers — the request originates from the WP server
+     * itself (loopback), so it never hits the CF proxy that's blocking
+     * external crawlers.
+     *
+     * SECURITY:
+     *  - Requires a valid X-DHC-API-Key.
+     *  - URL host MUST match the WordPress home_url() host. We reject any
+     *    URL pointing elsewhere so this endpoint can't be weaponized as
+     *    an open proxy to scrape arbitrary third-party sites.
+     *  - Response is capped at 2 MB — plenty for a WP post, stops a
+     *    misbehaving file from being relayed.
+     */
+    public static function handle_fetch_page( $request ) {
+        $url = trim( (string) $request->get_param( 'url' ) );
+        if ( empty( $url ) ) {
+            return new WP_Error( 'missing_url', 'url parameter required', array( 'status' => 400 ) );
+        }
+
+        // Open-proxy guard: only allow URLs pointing at this WP install.
+        $req_host  = strtolower( (string) parse_url( $url, PHP_URL_HOST ) );
+        $site_host = strtolower( (string) parse_url( home_url( '/' ), PHP_URL_HOST ) );
+        if ( empty( $req_host ) ) {
+            return new WP_Error( 'bad_url', 'Invalid URL', array( 'status' => 400 ) );
+        }
+        $norm = function( $h ) { return preg_replace( '/^www\./', '', $h ); };
+        if ( $norm( $req_host ) !== $norm( $site_host ) ) {
+            return new WP_Error(
+                'external_url',
+                'fetch-page only allows URLs on this site (' . $site_host . ')',
+                array( 'status' => 403 )
+            );
+        }
+
+        // Use wp_remote_get because it resolves to the loopback address
+        // when WP_HOME matches — bypasses any edge CDN in front.
+        $resp = wp_remote_get( $url, array(
+            'timeout'     => 20,
+            'redirection' => 5,
+            'sslverify'   => apply_filters( 'dhc_fetch_page_sslverify', true ),
+            'headers'     => array(
+                'User-Agent' => 'DsquaredHubConnector/' . DHC_VERSION . ' (loopback-fetch)',
+                'Accept'     => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            ),
+        ) );
+
+        if ( is_wp_error( $resp ) ) {
+            return new WP_Error( 'fetch_failed', $resp->get_error_message(), array( 'status' => 502 ) );
+        }
+
+        $code = (int) wp_remote_retrieve_response_code( $resp );
+        $body = (string) wp_remote_retrieve_body( $resp );
+
+        if ( $code >= 400 ) {
+            return new WP_Error( 'upstream_error', 'Upstream returned HTTP ' . $code, array( 'status' => 502 ) );
+        }
+
+        // Cap at 2 MB — a normal post is well under 250 KB.
+        if ( strlen( $body ) > 2 * 1024 * 1024 ) {
+            $body = substr( $body, 0, 2 * 1024 * 1024 );
+        }
+
+        return new WP_REST_Response( array(
+            'url'         => $url,
+            'status_code' => $code,
+            'html'        => $body,
+            'fetched_at'  => current_time( 'mysql' ),
+        ), 200 );
+    }
+
     public static function handle_status( $request ) {
         $subscription = DHC_API_Key::validate();
         $modules      = get_option( 'dhc_modules', array() );

@@ -4,6 +4,13 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.12.0] - 2026-04-23
+
+### Added
+- **Loopback fetch endpoint** (`POST /dsquared-hub/v1/fetch-page`). Hub's audit crawler calls this to pull page HTML from the WordPress server itself — bypassing any Cloudflare, Sucuri, or host-level bot protection in front of the site. The request originates from the WP server's own IP, so external firewalls never see it. Clients with this plugin installed + active don't have to deal with "blocked by bot protection" audit failures anymore.
+- **Open-proxy guard**: the endpoint only accepts URLs pointing at this WP install's home_url() host (with www/non-www normalization). Can't be weaponized to scrape arbitrary third-party sites even with a valid API key.
+- Response capped at 2 MB and request requires the existing X-DHC-API-Key.
+
 ## [1.11.1] - 2026-04-23
 
 ### Fixed
