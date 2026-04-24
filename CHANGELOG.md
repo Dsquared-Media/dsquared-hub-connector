@@ -4,6 +4,19 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.12.4] - 2026-04-24
+
+### Added
+- **301 redirect manager in Link Scanner.** Every row in "404 errors from real visitors" gets a "+ Add 301" button that pre-fills a redirect form — type the destination, save, done. Redirects fire on the very next visit (WP template_redirect hook at priority 1 — before WP can 404 the request). Full CRUD table of active redirects with hit counts. No .htaccess / server config required. Supports 301 / 302 / 307 / 308.
+- **Analytics "Scan homepage" button.** Fetches your homepage (3-step loopback fallback for CF-fronted sites) and detects existing `G-XXXX` / `GTM-XXXX` tags from other plugins (Yoast, Site Kit, MonsterInsights, theme). Shows a colored alert when a duplicate is detected so you can turn one off instead of firing events twice.
+- **Colorful dashboard charts.** New SVG donut for device breakdown + traffic sources, horizontal bar chart for top countries. Zero JS lib — pure SVG with inline paletted colors.
+
+### Changed
+- **API key input no longer has the eye/reveal toggle.** Stays masked for privacy — admins can paste a new key any time, but never see the existing one in plaintext.
+- **Modules tab cards** changed from indigo-tinted background when active to pure white with an indigo stroke. Matches the rest of the plugin's design and the Hub's card style.
+- **Removed "Top page" KPI tile** per user feedback.
+- **Alignment fix (CWV + Activity Log)** — WP's `.widefat` table had left/right padding that was pushing Core Web Vitals + Recent Activity cards visibly further right than the others. Neutralized inside `.dhc-wrap`.
+
 ## [1.12.3] - 2026-04-24
 
 ### Added

@@ -225,7 +225,6 @@ class DHC_Dashboard {
                 <?php if ( $pages_with_traffic > 0 ) echo self::kpi_tile( 'Pages getting traffic', self::num( $pages_with_traffic ), $period_sub ); ?>
                 <?php if ( $sessions_total > 0 ) echo self::kpi_tile( 'Sessions', self::num( $sessions_total ), $period_sub . ' (GA4)' ); ?>
                 <?php if ( $best_kw ) echo self::kpi_tile( 'Top keyword', self::short( $best_kw['keyword'] ?? '', 22 ), self::num( $best_clicks ) . ' clicks · pos ' . number_format( (float) ( $best_kw['position'] ?? 0 ), 1 ) ); ?>
-                <?php if ( $best_page ) echo self::kpi_tile( 'Top page', self::short( $best_page['path'] ?? '/', 26 ), self::num( $best_page_clicks ) . ' clicks' ); ?>
                 <?php if ( $device_top && ! empty( $device_top['label'] ) ) echo self::kpi_tile( 'Top device', esc_html( $device_top['label'] ), ( $device_top['pct'] ?? 0 ) . '% of sessions' ); ?>
                 <?php if ( $source_top && ! empty( $source_top['label'] ) ) echo self::kpi_tile( 'Top source', esc_html( $source_top['label'] ), ( $source_top['pct'] ?? 0 ) . '% of traffic' ); ?>
                 <?php if ( $country_top && ! empty( $country_top['label'] ) ) echo self::kpi_tile( 'Top country', esc_html( $country_top['label'] ), ( $country_top['pct'] ?? 0 ) . '% of visitors' ); ?>
@@ -238,11 +237,46 @@ class DHC_Dashboard {
         <!-- ── Block: traffic trend ── -->
         <?php if ( ! empty( $data['traffic'] ) ) : ?>
             <div class="dhc-card">
-                <div class="dhc-card-header"><h2>Traffic (last 14 days)</h2></div>
+                <div class="dhc-card-header"><h2>Traffic — last <?php echo (int) ( $data['period']['days'] ?? 14 ); ?> days</h2></div>
                 <div class="dhc-card-body">
                     <?php echo self::render_sparkline( $data['traffic'] ); ?>
                 </div>
             </div>
+        <?php endif; ?>
+
+        <!-- ── Block: device + source donut charts (side-by-side) ── -->
+        <?php
+        $has_dev  = ! empty( $data['device_top']['list'] );
+        $has_src  = ! empty( $data['source_top']['list'] );
+        $has_cnt  = ! empty( $data['country_top']['list'] );
+        if ( $has_dev || $has_src || $has_cnt ) :
+        ?>
+            <div class="dhc-dash-two-col">
+                <?php if ( $has_dev ) : ?>
+                    <div class="dhc-card">
+                        <div class="dhc-card-header"><h2>Devices</h2></div>
+                        <div class="dhc-card-body">
+                            <?php echo self::render_donut( $data['device_top']['list'], array( '#6366F1', '#EC4899', '#F59E0B', '#10B981', '#8B5CF6' ) ); ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+                <?php if ( $has_src ) : ?>
+                    <div class="dhc-card">
+                        <div class="dhc-card-header"><h2>Traffic sources</h2></div>
+                        <div class="dhc-card-body">
+                            <?php echo self::render_donut( $data['source_top']['list'], array( '#4A6CF7', '#EC4899', '#8B5CF6', '#06B6D4', '#94A3B8' ) ); ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </div>
+            <?php if ( $has_cnt ) : ?>
+                <div class="dhc-card">
+                    <div class="dhc-card-header"><h2>Top countries</h2></div>
+                    <div class="dhc-card-body">
+                        <?php echo self::render_hbar( $data['country_top']['list'], '#6366F1' ); ?>
+                    </div>
+                </div>
+            <?php endif; ?>
         <?php endif; ?>
 
         <!-- ── Block: CTR gaps (quick wins) ── -->
@@ -442,6 +476,82 @@ class DHC_Dashboard {
         $out .= '<polygon points="' . esc_attr( $area_points ) . '" fill="rgba(79,70,229,0.12)"/>';
         $out .= '<polyline points="' . esc_attr( $poly_points ) . '" fill="none" stroke="#4f46e5" stroke-width="2"/>';
         $out .= '</svg></div>';
+        return $out;
+    }
+
+    /** SVG donut — colorful, no JS library. Expects rows of { label, value }. */
+    private static function render_donut( $rows, $palette ) {
+        if ( ! is_array( $rows ) || empty( $rows ) ) return '';
+        $total = 0;
+        foreach ( $rows as $r ) { $total += (int) ( $r['value'] ?? 0 ); }
+        if ( $total <= 0 ) return '';
+
+        $cx = 70; $cy = 70; $r_outer = 60; $r_inner = 42;
+        $start_angle = -90;
+        $segments = '';
+        $legend = '';
+        $i = 0;
+        foreach ( $rows as $row ) {
+            $v = (int) ( $row['value'] ?? 0 );
+            if ( $v <= 0 ) continue;
+            $frac = $v / $total;
+            $sweep = $frac * 360;
+            $end_angle = $start_angle + $sweep;
+            $color = $palette[ $i % count( $palette ) ];
+            // Large arc flag — 1 when sweep > 180°.
+            $large = $sweep > 180 ? 1 : 0;
+            $sx = $cx + $r_outer * cos( deg2rad( $start_angle ) );
+            $sy = $cy + $r_outer * sin( deg2rad( $start_angle ) );
+            $ex = $cx + $r_outer * cos( deg2rad( $end_angle ) );
+            $ey = $cy + $r_outer * sin( deg2rad( $end_angle ) );
+            $sxi = $cx + $r_inner * cos( deg2rad( $end_angle ) );
+            $syi = $cy + $r_inner * sin( deg2rad( $end_angle ) );
+            $exi = $cx + $r_inner * cos( deg2rad( $start_angle ) );
+            $eyi = $cy + $r_inner * sin( deg2rad( $start_angle ) );
+            $d  = 'M ' . number_format( $sx, 2, '.', '' ) . ' ' . number_format( $sy, 2, '.', '' );
+            $d .= ' A ' . $r_outer . ' ' . $r_outer . ' 0 ' . $large . ' 1 ' . number_format( $ex, 2, '.', '' ) . ' ' . number_format( $ey, 2, '.', '' );
+            $d .= ' L ' . number_format( $sxi, 2, '.', '' ) . ' ' . number_format( $syi, 2, '.', '' );
+            $d .= ' A ' . $r_inner . ' ' . $r_inner . ' 0 ' . $large . ' 0 ' . number_format( $exi, 2, '.', '' ) . ' ' . number_format( $eyi, 2, '.', '' );
+            $d .= ' Z';
+            $segments .= '<path d="' . $d . '" fill="' . esc_attr( $color ) . '"/>';
+
+            $pct = round( $frac * 100 );
+            $legend .= '<div style="display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 0;">'
+                   . '<span style="width:10px;height:10px;border-radius:2px;background:' . esc_attr( $color ) . ';flex-shrink:0;"></span>'
+                   . '<span style="flex:1;color:#1e293b;">' . esc_html( $row['label'] ?? '' ) . '</span>'
+                   . '<span style="color:#64748b;font-weight:600;font-variant-numeric:tabular-nums;">' . $pct . '%</span>'
+                   . '</div>';
+            $start_angle = $end_angle;
+            $i++;
+        }
+
+        $out  = '<div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">';
+        $out .= '<svg viewBox="0 0 140 140" style="width:140px;height:140px;flex-shrink:0;">' . $segments . '</svg>';
+        $out .= '<div style="flex:1;min-width:180px;">' . $legend . '</div>';
+        $out .= '</div>';
+        return $out;
+    }
+
+    /** Horizontal bar chart — used for countries + any ranked list. */
+    private static function render_hbar( $rows, $color = '#6366F1' ) {
+        if ( ! is_array( $rows ) || empty( $rows ) ) return '';
+        $max = 0;
+        foreach ( $rows as $r ) { if ( (int) ( $r['value'] ?? 0 ) > $max ) $max = (int) $r['value']; }
+        if ( $max <= 0 ) return '';
+        $out = '<div style="display:flex;flex-direction:column;gap:8px;">';
+        foreach ( $rows as $r ) {
+            $v = (int) ( $r['value'] ?? 0 );
+            $pct = $max > 0 ? round( ( $v / $max ) * 100 ) : 0;
+            $label = esc_html( $r['label'] ?? '' );
+            $out .= '<div style="display:flex;align-items:center;gap:12px;font-size:13px;">'
+                 . '<span style="width:100px;color:#1e293b;">' . $label . '</span>'
+                 . '<div style="flex:1;height:10px;background:#f1f5f9;border-radius:999px;overflow:hidden;">'
+                 .   '<div style="width:' . $pct . '%;height:100%;background:' . esc_attr( $color ) . ';border-radius:999px;"></div>'
+                 . '</div>'
+                 . '<span style="width:60px;text-align:right;color:#64748b;font-weight:600;font-variant-numeric:tabular-nums;">' . number_format( $v ) . '</span>'
+                 . '</div>';
+        }
+        $out .= '</div>';
         return $out;
     }
 

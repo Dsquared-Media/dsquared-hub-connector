@@ -288,16 +288,36 @@
 }
 
 /* Tab content wrapper — guarantees every card inside any tab gets
-   the same horizontal footprint. Fixes the Site Health + Activity
-   Log tabs rendering their cards wider than others. */
+   the same horizontal footprint. Also zeros out WordPress's default
+   .widefat table left-margin that was pushing CWV + Recent Activity
+   cards visibly further right than the others. */
 .dhc-tab-content {
     width: 100%;
     max-width: 100%;
+    padding: 0;
+    margin: 0;
 }
 .dhc-tab-content .dhc-card {
     margin-left: 0;
     margin-right: 0;
     width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+/* WP's .widefat table has its own shadow/border + full-width margin
+   that fights with our card padding — neutralize inside our cards. */
+.dhc-wrap .widefat {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+}
+.dhc-wrap .widefat th,
+.dhc-wrap .widefat td {
+    padding-left: 0 !important;
+}
+.dhc-wrap .widefat td:last-child,
+.dhc-wrap .widefat th:last-child {
+    padding-right: 0 !important;
 }
 
 /* Dashboard KPI grid — explicit 4-column on desktop so tiles line up
@@ -608,9 +628,12 @@
     box-shadow: 0 4px 18px rgba(0,0,0,0.06);
 }
 
+/* Active modules keep the plain white card — just bump the stroke
+   to the accent so the state is clear without a colored fill. Keeps
+   every card visually consistent with the rest of the plugin UI. */
 .dhc-module-active {
-    border-color: #4f46e5;
-    background: linear-gradient(135deg, rgba(79, 70, 229, 0.02) 0%, rgba(79, 70, 229, 0.04) 100%);
+    border-color: #c7d2fe;
+    background: #fff;
 }
 
 .dhc-module-locked {

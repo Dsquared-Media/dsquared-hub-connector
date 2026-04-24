@@ -216,15 +216,12 @@ class DHC_Admin {
                     <div class="dhc-card-body">
                         <div class="dhc-field">
                             <label for="dhc-api-key"><?php esc_html_e( 'API Key', 'dsquared-hub-connector' ); ?></label>
-                            <div class="dhc-input-group">
-                                <input type="password" id="dhc-api-key" class="dhc-input"
-                                       value="<?php echo esc_attr( $api_key ); ?>"
-                                       placeholder="<?php esc_attr_e( 'Enter your Hub API key', 'dsquared-hub-connector' ); ?>" autocomplete="off">
-                                <button type="button" class="dhc-btn dhc-btn-icon" id="dhc-toggle-key" title="<?php esc_attr_e( 'Show/hide key', 'dsquared-hub-connector' ); ?>">
-                                    <span class="dashicons dashicons-visibility" style="font-size:18px;width:18px;height:18px;"></span>
-                                </button>
-                            </div>
-                            <p class="dhc-field-hint"><?php printf( esc_html__( 'Find your API key in %sHub &rarr; Account &rarr; API Keys%s', 'dsquared-hub-connector' ), '<a href="https://hub.dsquaredmedia.net/dashboard.html#account" target="_blank">', '</a>' ); ?></p>
+                            <input type="password" id="dhc-api-key" class="dhc-input"
+                                   value="<?php echo esc_attr( $api_key ); ?>"
+                                   placeholder="<?php esc_attr_e( 'Enter your Hub API key', 'dsquared-hub-connector' ); ?>"
+                                   autocomplete="off"
+                                   style="width:100%;">
+                            <p class="dhc-field-hint"><?php printf( esc_html__( 'Find your API key in %sHub &rarr; Account &rarr; API Keys%s. Stays masked for privacy.', 'dsquared-hub-connector' ), '<a href="https://hub.dsquaredmedia.net/dashboard.html#account" target="_blank">', '</a>' ); ?></p>
                         </div>
                         <div class="dhc-actions">
                             <button type="button" class="dhc-btn dhc-btn-primary" id="dhc-save-key"><?php esc_html_e( 'Save & Validate', 'dsquared-hub-connector' ); ?></button>
