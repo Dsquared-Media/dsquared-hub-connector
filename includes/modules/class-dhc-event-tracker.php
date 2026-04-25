@@ -32,6 +32,7 @@ class DHC_Event_Tracker {
 	public static function defaults() {
 		return array(
 			'enabled'        => false,       // master switch
+			'send_to_hub'    => true,        // beacon events to Hub for agency rollup
 			'presets'        => array(
 				'form_submit'   => false,
 				'phone_click'   => false,
@@ -111,7 +112,8 @@ class DHC_Event_Tracker {
 		check_admin_referer( 'dhc_event_tracker' );
 
 		$cfg = self::defaults();
-		$cfg['enabled'] = ! empty( $_POST['enabled'] );
+		$cfg['enabled']     = ! empty( $_POST['enabled'] );
+		$cfg['send_to_hub'] = ! empty( $_POST['send_to_hub'] );
 		foreach ( $cfg['presets'] as $k => $_ ) {
 			$cfg['presets'][ $k ] = ! empty( $_POST['preset'][ $k ] );
 		}
@@ -170,12 +172,19 @@ class DHC_Event_Tracker {
 
 				<div class="dhc-card">
 					<div class="dhc-card-header"><h2>Master switch</h2></div>
-					<div class="dhc-card-body">
-						<label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
-							<input type="checkbox" name="enabled" value="1" <?php checked( ! empty( $cfg['enabled'] ) ); ?>>
+					<div class="dhc-card-body" style="display:flex;flex-direction:column;gap:14px;">
+						<label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+							<input type="checkbox" name="enabled" value="1" style="margin-top:2px;" <?php checked( ! empty( $cfg['enabled'] ) ); ?>>
 							<div>
 								<strong>Enable event tracking</strong>
 								<div style="font-size:13px;color:#64748b;margin-top:2px;">Injects a tiny listener script on every front-end page. Events fire to <code>window.dataLayer</code> (GTM) and directly to <code>gtag()</code> (GA4) — whichever you have set up.</div>
+							</div>
+						</label>
+						<label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+							<input type="checkbox" name="send_to_hub" value="1" style="margin-top:2px;" <?php checked( ! empty( $cfg['send_to_hub'] ) ); ?>>
+							<div>
+								<strong>Send event counts to the Dsquared Hub</strong>
+								<div style="font-size:13px;color:#64748b;margin-top:2px;">Beacons captured events to <code>hub.dsquaredmedia.net</code> so your agency can see "X form submits this week" across every site in one rollup. No personal data — just event names + counts. Batched and flushed via <code>navigator.sendBeacon</code> so it never blocks page loads.</div>
 							</div>
 						</label>
 					</div>
@@ -283,11 +292,25 @@ class DHC_Event_Tracker {
 		if ( ! is_array( $queue ) ) $queue = array();
 		if ( ! empty( $queue ) ) update_option( 'dhc_track_queue', array(), false );
 
+		// Hub beacon config — only attached when the user opted in AND
+		// an API key is configured. Without one we silently skip the
+		// beacon path; events still go to dataLayer/gtag.
+		$api_key = get_option( 'dhc_api_key', '' );
+		$hub_base = defined( 'DHC_HUB_API_BASE' ) ? DHC_HUB_API_BASE : 'https://hub.dsquaredmedia.net/api';
+		$beacon = ( ! empty( $cfg['send_to_hub'] ) && ! empty( $api_key ) )
+			? array(
+				'url'      => rtrim( $hub_base, '/' ) . '/plugin/events',
+				'api_key'  => $api_key,
+				'site_url' => home_url( '/' ),
+			)
+			: null;
+
 		$js_cfg = array(
 			'presets'       => array_filter( $cfg['presets'] ),
 			'custom'        => $cfg['custom'],
 			'cta_selectors' => $cfg['cta_selectors'],
 			'queued'        => $queue,
+			'beacon'        => $beacon,
 		);
 		?>
 		<script id="dhc-event-tracker" data-version="<?php echo esc_attr( defined( 'DHC_VERSION' ) ? DHC_VERSION : '1.13.0' ); ?>">
@@ -295,8 +318,43 @@ class DHC_Event_Tracker {
 			var CFG = <?php echo wp_json_encode( $js_cfg ); ?>;
 			if (!CFG) return;
 
+			// Hub beacon queue — flushes batched events to the Hub for the
+			// agency rollup view. Uses navigator.sendBeacon when leaving
+			// the page so we don't lose the last few events on tab close.
+			var BEACON = CFG.beacon || null;
+			var beacon_queue = [];
+			var BEACON_FLUSH_MS = 30 * 1000;
+			var BEACON_MAX_QUEUE = 50; // flush early if queue grows past this
+
+			function flushBeacon(useSendBeacon) {
+				if (!BEACON || !beacon_queue.length) return;
+				var batch = beacon_queue.splice(0, beacon_queue.length);
+				var payload = JSON.stringify({ events: batch, site_url: BEACON.site_url });
+				try {
+					if (useSendBeacon && navigator.sendBeacon) {
+						// sendBeacon doesn't support custom headers — encode the
+						// API key as a query param for this code path only.
+						var url = BEACON.url + (BEACON.url.indexOf('?') >= 0 ? '&' : '?') + 'k=' + encodeURIComponent(BEACON.api_key);
+						navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }));
+					} else {
+						fetch(BEACON.url, {
+							method: 'POST',
+							credentials: 'omit',
+							headers: { 'Content-Type': 'application/json', 'X-DHC-API-Key': BEACON.api_key, 'X-DHC-Site-Url': BEACON.site_url },
+							body: payload,
+							keepalive: true
+						}).catch(function() { /* network blip — give up, next flush will pick up new events */ });
+					}
+				} catch (e) { /* never let beacon throw block the page */ }
+			}
+			if (BEACON) {
+				setInterval(function() { flushBeacon(false); }, BEACON_FLUSH_MS);
+				window.addEventListener('pagehide', function() { flushBeacon(true); }, false);
+			}
+
 			// Core push — goes to dataLayer (GTM) + gtag (GA4). Both if both
 			// are present; either if only one is; skips silently if neither.
+			// Also pushes onto the Hub beacon queue when configured.
 			function track(name, params) {
 				if (!name) return;
 				params = params || {};
@@ -306,6 +364,14 @@ class DHC_Event_Tracker {
 					window.dataLayer.push(params);
 				} catch (e) {}
 				try { if (typeof window.gtag === 'function') window.gtag('event', name, params); } catch (e) {}
+				// Hub beacon — strip the synthesized "event" key (server already
+				// has the name as a top-level field) to keep payload tight.
+				if (BEACON) {
+					var p = {};
+					for (var k in params) { if (params.hasOwnProperty(k) && k !== 'event') p[k] = params[k]; }
+					beacon_queue.push({ name: name, params: p, ts: Date.now() });
+					if (beacon_queue.length >= BEACON_MAX_QUEUE) flushBeacon(false);
+				}
 			}
 			// Expose for devs — window.dhcTrack(name, params).
 			window.dhcTrack = track;

@@ -4,6 +4,11 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.13.1] - 2026-04-25
+
+### Added
+- **Event beacons to the Hub** for the agency rollup view. Captured events are batched client-side and flushed to `hub.dsquaredmedia.net` every 30s + via `navigator.sendBeacon` on tab close (so the last few events aren't lost). New "Send event counts to the Hub" toggle on the Event Tracking master switch — opt-in, default ON. No personal data sent — just event names + minimal params (CTA text, file name, etc).
+
 ## [1.13.0] - 2026-04-24
 
 ### Added
