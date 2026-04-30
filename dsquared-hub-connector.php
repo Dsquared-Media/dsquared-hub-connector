@@ -3,7 +3,7 @@
  * Plugin Name:       Dsquared Hub Connector
  * Plugin URI:        https://hub.dsquaredmedia.net
  * Description:       Connect your WordPress site to Dsquared Media Hub — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, AI discovery, content decay alerts, and lead capture. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
- * Version:           1.13.3
+ * Version:           1.13.4
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Dsquared Media
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Plugin constants ────────────────────────────────────────────────
-define( 'DHC_VERSION', '1.13.3' );
+define( 'DHC_VERSION', '1.13.4' );
 define( 'DHC_PLUGIN_FILE', __FILE__ );
 define( 'DHC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

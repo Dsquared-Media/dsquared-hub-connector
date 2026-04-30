@@ -18,11 +18,36 @@ class DHC_Admin {
     public static function init() {
         add_action( 'admin_menu', array( __CLASS__, 'add_menu_page' ) );
         add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_assets' ) );
+        // Suppress third-party plugin notices on our admin pages — they
+        // were bleeding into the dark hero card (Sticky Bar Pro upgrade,
+        // BeTheme review prompt, WP Rocket cache notice, etc) and broke
+        // the design. Hook on current_screen so we know which page we're
+        // on, then strip every admin_notices / all_admin_notices handler.
+        add_action( 'current_screen', array( __CLASS__, 'suppress_third_party_notices' ) );
         add_action( 'wp_ajax_dhc_save_settings', array( __CLASS__, 'ajax_save_settings' ) );
         add_action( 'wp_ajax_dhc_validate_key', array( __CLASS__, 'ajax_validate_key' ) );
         add_action( 'wp_ajax_dhc_clear_activity_log', array( __CLASS__, 'ajax_clear_log' ) );
         add_action( 'wp_ajax_dhc_save_ai_discovery', array( __CLASS__, 'ajax_save_ai_discovery' ) );
         add_action( 'wp_ajax_dhc_scrape_website', array( __CLASS__, 'ajax_scrape_website' ) );
+    }
+
+    /**
+     * Strip third-party admin_notices on D2 Hub pages so plugin upgrade
+     * banners and review prompts don't pollute the hero card. Runs on
+     * current_screen so the screen ID is available; matches any page
+     * whose ID contains "dsquared-hub" (covers root + every sub-page).
+     */
+    public static function suppress_third_party_notices( $screen ) {
+        if ( ! $screen || empty( $screen->id ) ) {
+            return;
+        }
+        if ( strpos( $screen->id, 'dsquared-hub' ) === false ) {
+            return;
+        }
+        remove_all_actions( 'admin_notices' );
+        remove_all_actions( 'all_admin_notices' );
+        remove_all_actions( 'user_admin_notices' );
+        remove_all_actions( 'network_admin_notices' );
     }
 
     /**
