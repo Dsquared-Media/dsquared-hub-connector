@@ -4,6 +4,11 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.13.5] - 2026-06-07
+
+### Fixed
+- **Fatal error on every page load after upgrade** — v1.13.3 and v1.13.4 called `regenerate_static_files()` from `dhc_init` (hooked to `plugins_loaded`). That path runs `get_permalink()` against each published page, which dereferences `$wp_rewrite` — but `$wp_rewrite` isn't constructed until after `plugins_loaded` fires. Result: `Call to a member function get_page_permastruct() on null` on every request, which caused WP's auto-updater to roll back the install. Deferred the rewrite flush + llms.txt regeneration to the `init` action (priority 99) where `$wp_rewrite` is fully available.
+
 ## [1.13.1] - 2026-04-25
 
 ### Added

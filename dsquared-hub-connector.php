@@ -3,7 +3,7 @@
  * Plugin Name:       Dsquared Hub Connector
  * Plugin URI:        https://hub.dsquaredmedia.net
  * Description:       Connect your WordPress site to Dsquared Media Hub — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, AI discovery, content decay alerts, and lead capture. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
- * Version:           1.13.4
+ * Version:           1.13.5
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Dsquared Media
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Plugin constants ────────────────────────────────────────────────
-define( 'DHC_VERSION', '1.13.4' );
+define( 'DHC_VERSION', '1.13.5' );
 define( 'DHC_PLUGIN_FILE', __FILE__ );
 define( 'DHC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -249,21 +249,24 @@ function dhc_init() {
     // after an auto-update because the activation hook isn't re-run.
     $installed = get_option( 'dhc_installed_version' );
     if ( $installed !== DHC_VERSION ) {
-        flush_rewrite_rules( false );
         update_option( 'dhc_installed_version', DHC_VERSION );
         // First-load after upgrade: fire the new crons so users see
         // data in the Link Scanner sub-page immediately after update.
         if ( class_exists( 'DHC_Inventory' ) )    DHC_Inventory::schedule();
         if ( class_exists( 'DHC_Link_Scanner' ) ) DHC_Link_Scanner::schedule();
-        // v1.13.3: regenerate physical llms.txt / llms-full.txt files
-        // on every upgrade so hosts with nginx try_files=404 on .txt
-        // start serving them. Cheap — just two file writes.
-        if ( class_exists( 'DHC_AI_Discovery' ) ) {
-            $ai = DHC_AI_Discovery::init();
-            if ( method_exists( $ai, 'regenerate_static_files' ) ) {
-                $ai->regenerate_static_files();
+        // Defer rewrite flush + llms.txt regen to 'init' — $wp_rewrite
+        // doesn't exist on plugins_loaded, and regenerate_static_files()
+        // calls get_permalink() which dereferences it (v1.13.3/1.13.4
+        // fatal'd here on every page load after upgrade).
+        add_action( 'init', function() {
+            flush_rewrite_rules( false );
+            if ( class_exists( 'DHC_AI_Discovery' ) ) {
+                $ai = DHC_AI_Discovery::init();
+                if ( method_exists( $ai, 'regenerate_static_files' ) ) {
+                    $ai->regenerate_static_files();
+                }
             }
-        }
+        }, 99 );
     }
 }
 add_action( 'plugins_loaded', 'dhc_init' );
