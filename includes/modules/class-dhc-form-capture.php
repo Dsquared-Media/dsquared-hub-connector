@@ -104,7 +104,9 @@ class DHC_Form_Capture {
     /* ─── Contact Form 7 ─── */
 
     public function capture_cf7( $contact_form ) {
-        $submission = WPCF7_Submission::instance();
+        if ( ! class_exists( 'WPCF7_Submission' ) || ! method_exists( 'WPCF7_Submission', 'get_instance' ) ) return;
+
+        $submission = WPCF7_Submission::get_instance();
         if ( ! $submission ) return;
 
         $data   = $submission->get_posted_data();

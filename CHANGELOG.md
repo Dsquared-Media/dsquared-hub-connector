@@ -4,6 +4,11 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.13.6] - 2026-07-16
+
+### Fixed
+- **Fatal error on Contact Form 7 submissions** — `capture_cf7()` called `WPCF7_Submission::instance()`, which does not exist; the correct CF7 singleton accessor is `get_instance()`. Every CF7 form submit threw `Call to undefined method WPCF7_Submission::instance()` and 500'd the request. Switched to `get_instance()` and added a `class_exists`/`method_exists` guard so a missing or older Contact Form 7 can never fatal the page again.
+
 ## [1.13.5] - 2026-06-07
 
 ### Fixed
