@@ -121,6 +121,14 @@ class DHC_Hub_Sync {
         update_option( 'dhc_business_profile', $merged );
         update_option( 'dhc_ai_business_profile', $merged );
 
+        // Rewrite the physical llms.txt / llms-full.txt right away so a sync
+        // takes effect immediately, without a separate "Save & Generate
+        // Files" step. Previously the option updated but the live files
+        // stayed stale until the user clicked save.
+        if ( class_exists( 'DHC_AI_Discovery' ) && method_exists( 'DHC_AI_Discovery', 'regenerate_files' ) ) {
+            DHC_AI_Discovery::regenerate_files( $merged );
+        }
+
         // Log the sync event
         DHC_Event_Logger::ai_discovery(
             'profile_synced_from_hub',
@@ -181,7 +189,11 @@ class DHC_Hub_Sync {
             wp_send_json_error( __( 'Unauthorized', 'dsquared-hub-connector' ) );
         }
 
-        $force = ! empty( $_POST['force'] );
+        // A manual "Sync from Hub" means "pull the current Hub profile" — the
+        // Hub is the source of truth, so default to overwrite. Without this it
+        // merged and kept stale local values, so a resync couldn't fix a
+        // profile that was already wrong. Callers can still pass force=0.
+        $force = isset( $_POST['force'] ) ? ! empty( $_POST['force'] ) : true;
 
         $hub_profile = self::fetch_profile_from_hub();
         if ( is_wp_error( $hub_profile ) ) {

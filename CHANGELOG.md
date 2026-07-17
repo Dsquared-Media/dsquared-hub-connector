@@ -4,6 +4,15 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.13.7] - 2026-07-17
+
+### Fixed
+- **llms.txt didn't match the Hub Business Profile.** Three problems, now fixed:
+  - `generate_llms_summary()` now mirrors the Hub's "Generate LLM Files" output exactly (`# name`, `> description`, `## Type`, `## Services`, `## Service Areas`, `## Contact`, `## Hours`) so the live `/llms.txt` matches the Business Profile field for field.
+  - The admin save and the Hub sync both called `DHC_AI_Discovery::regenerate_files()`, which never existed (the real method is the instance `regenerate_static_files()`), so the physical files silently never got rewritten. Added a static `regenerate_files()` wrapper that bridges to the instance method.
+  - `DHC_Hub_Sync::apply_profile()` now rewrites the physical files immediately after a sync, and a manual "Sync from Hub" now defaults to overwrite (the Hub is the source of truth) instead of merging and keeping stale local values. A resync now actually fixes a profile that was wrong.
+- Pairs with a Hub-side fix: `/api/plugin/ai-discovery-profile` was reading a non-existent `profile_data` column and returning an empty profile; it now returns the full Business Profile (including a combined `address`).
+
 ## [1.13.6] - 2026-07-16
 
 ### Fixed

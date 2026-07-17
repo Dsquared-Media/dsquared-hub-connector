@@ -23,6 +23,17 @@ class DHC_AI_Discovery {
         return self::$instance;
     }
 
+    /**
+     * Static wrapper so callers in static context (admin save, Hub sync)
+     * can regenerate the physical llms.txt / llms-full.txt files. The admin
+     * and sync code called DHC_AI_Discovery::regenerate_files() which never
+     * existed (the real method is the instance regenerate_static_files),
+     * so files silently never got rewritten. This bridges the two.
+     */
+    public static function regenerate_files( $profile = null ) {
+        return self::init()->regenerate_static_files( $profile );
+    }
+
     public function __construct() {
         // Rewrite rules for llms.txt and llms-full.txt
         add_action( 'init', array( $this, 'add_rewrite_rules' ) );
@@ -300,27 +311,30 @@ class DHC_AI_Discovery {
     /* ─── Generate llms.txt (summary) ─── */
 
     private function generate_llms_summary( $profile ) {
+        // Format mirrors the Hub's Business Profile "Generate LLM Files"
+        // output exactly (# name, > description, ## Type, ## Services,
+        // ## Service Areas, ## Contact, ## Hours) so the live /llms.txt
+        // matches what the user sees in the Hub, field for field.
         $name     = $profile['business_name'] ?? get_bloginfo( 'name' );
         $desc     = $profile['description'] ?? get_bloginfo( 'description' );
+        $type     = $profile['business_type'] ?? '';
         $url      = home_url( '/' );
         $phone    = $profile['phone'] ?? '';
+        $email    = $profile['email'] ?? '';
         $address  = $profile['address'] ?? '';
+        $hours    = $profile['hours'] ?? '';
         $services = $profile['services'] ?? array();
         $areas    = $profile['service_areas'] ?? array();
 
-        $output  = "# {$name}\n\n";
+        $output  = "# {$name}\n";
         $output .= "> {$desc}\n\n";
-        $output .= "Website: {$url}\n";
 
-        if ( $phone ) {
-            $output .= "Phone: {$phone}\n";
-        }
-        if ( $address ) {
-            $output .= "Address: {$address}\n";
+        if ( $type ) {
+            $output .= "## Type\n{$type}\n\n";
         }
 
         if ( ! empty( $services ) ) {
-            $output .= "\n## Services\n\n";
+            $output .= "## Services\n";
             foreach ( $services as $service ) {
                 $svc_name = is_array( $service ) ? ( $service['name'] ?? '' ) : $service;
                 $svc_desc = is_array( $service ) ? ( $service['description'] ?? '' ) : '';
@@ -330,18 +344,29 @@ class DHC_AI_Discovery {
                 }
                 $output .= "\n";
             }
+            $output .= "\n";
         }
 
         if ( ! empty( $areas ) ) {
-            $output .= "\n## Service Areas\n\n";
-            $output .= implode( ', ', $areas ) . "\n";
+            $output .= "## Service Areas\n" . implode( ', ', $areas ) . "\n\n";
         }
 
-        $output .= "\n## More Information\n\n";
-        $output .= "- Full details: " . home_url( '/llms-full.txt' ) . "\n";
-        $output .= "- Website: {$url}\n";
+        if ( $phone || $email || $address ) {
+            $output .= "## Contact\n";
+            if ( $phone )   $output .= "- Phone: {$phone}\n";
+            if ( $email )   $output .= "- Email: {$email}\n";
+            if ( $address ) $output .= "- Address: {$address}\n";
+            $output .= "- Website: {$url}\n\n";
+        }
 
-        return $output;
+        if ( $hours ) {
+            $output .= "## Hours\n{$hours}\n\n";
+        }
+
+        $output .= "## More Information\n";
+        $output .= "- Full details: " . home_url( '/llms-full.txt' ) . "\n";
+
+        return rtrim( $output ) . "\n";
     }
 
     /* ─── Generate llms-full.txt (detailed) ─── */
