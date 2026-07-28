@@ -59,9 +59,10 @@ class DHC_SEO_Meta {
             );
         }
 
-        // Resolve post ID from URL if not provided
+        // Resolve post ID from URL if not provided. Uses the robust
+        // WooCommerce/host-aware resolver, not bare url_to_postid().
         if ( empty( $post_id ) && ! empty( $url ) ) {
-            $post_id = url_to_postid( $url );
+            $post_id = DHC_Core::resolve_post_id_from_url( $url );
         }
 
         if ( empty( $post_id ) || ! get_post( $post_id ) ) {
@@ -350,7 +351,7 @@ class DHC_SEO_Meta {
             $post_id = isset( $u['post_id'] ) ? (int) $u['post_id'] : 0;
             $url     = isset( $u['url'] ) ? (string) $u['url'] : '';
             if ( ! $post_id && $url ) {
-                $post_id = url_to_postid( $url );
+                $post_id = DHC_Core::resolve_post_id_from_url( $url );
             }
             if ( ! $post_id ) {
                 $results[] = array( 'success' => false, 'error' => 'Missing post_id / url', 'post_id' => null );

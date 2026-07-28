@@ -52,9 +52,9 @@ class DHC_Posts {
             return new WP_Error( 'dhc_missing_content', 'content_html is required.', array( 'status' => 400 ) );
         }
 
-        // Resolve post by URL if post_id not supplied
+        // Resolve post by URL if post_id not supplied (WooCommerce/host-aware)
         if ( ! $post_id && ! empty( $url ) ) {
-            $post_id = url_to_postid( $url );
+            $post_id = DHC_Core::resolve_post_id_from_url( $url );
             if ( ! $post_id ) {
                 return new WP_Error(
                     'dhc_post_not_found',

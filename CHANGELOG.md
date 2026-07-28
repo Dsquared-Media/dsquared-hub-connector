@@ -4,6 +4,14 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.14.0] - 2026-07-28
+
+### Fixed
+- **Bulk meta / schema / content pushes failed with "Pushed 0/50" on WooCommerce and www-mismatched sites.** Every URL-targeted endpoint resolved the URL with bare `url_to_postid()`, which (a) only matches URLs on the exact same host as `home_url()` — so a single www/non-www or http/https difference between the Hub's crawled URLs and the live site made *every* URL return 0 — and (b) never resolves WooCommerce shop archives or product URLs. On a WooCommerce store the entire batch 404'd.
+
+### Added
+- **`DHC_Core::resolve_post_id_from_url()`** — a robust, WooCommerce/host-aware URL→post resolver. Tries native `url_to_postid()`, then rebuilds the URL against the real `home_url()` (fixes www/protocol mismatch), then maps the WooCommerce shop archive to its configured page, then falls back to a hierarchical path match and a flat slug match across every public post type (resolves products and any CPT). Now used by the SEO Meta (single + bulk), Schema, and Body Content push endpoints.
+
 ## [1.13.7] - 2026-07-17
 
 ### Fixed

@@ -67,9 +67,9 @@ class DHC_Schema {
             }
         }
 
-        // Resolve post ID from URL if not provided
+        // Resolve post ID from URL if not provided (WooCommerce/host-aware).
         if ( empty( $post_id ) && ! empty( $url ) ) {
-            $post_id = url_to_postid( $url );
+            $post_id = DHC_Core::resolve_post_id_from_url( $url );
         }
 
         // Store schema

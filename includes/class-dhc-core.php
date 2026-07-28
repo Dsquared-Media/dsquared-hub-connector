@@ -100,6 +100,94 @@ class DHC_Core {
     }
 
     /**
+     * Resolve a WordPress post/page/product ID from a public URL.
+     *
+     * Core `url_to_postid()` only matches URLs that share the exact host
+     * of `home_url()` and only reliably resolves posts/pages — it returns
+     * 0 for WooCommerce shop archives and often for product URLs. Crawled
+     * audit URLs also frequently differ by www/protocol from `home_url()`,
+     * which made `url_to_postid()` return 0 for EVERY URL (the "Pushed
+     * 0/50" symptom). This helper adds host-normalization, a WooCommerce
+     * shop-page shortcut, and a slug/path fallback across every public
+     * post type so bulk meta pushes resolve reliably.
+     *
+     * @param string $url Public URL.
+     * @return int Post ID, or 0 if nothing matched.
+     */
+    public static function resolve_post_id_from_url( $url ) {
+        $url = trim( (string) $url );
+        if ( '' === $url ) {
+            return 0;
+        }
+
+        // 1. Native attempt (fast path for same-host posts/pages).
+        $id = url_to_postid( $url );
+        if ( $id ) {
+            return (int) $id;
+        }
+
+        $parts = wp_parse_url( $url );
+        $path  = isset( $parts['path'] ) ? $parts['path'] : '';
+        if ( '' === $path || '/' === $path ) {
+            return 0;
+        }
+        $trimmed_path = trim( $path, '/' );
+
+        // 2. Host-normalize: rebuild the URL against the real home_url()
+        //    so a www/non-www or http/https mismatch stops blocking the
+        //    match, then retry the native resolver.
+        $rebuilt = untrailingslashit( home_url() ) . '/' . $trimmed_path . '/';
+        $id      = url_to_postid( $rebuilt );
+        if ( $id ) {
+            return (int) $id;
+        }
+
+        // 3. WooCommerce shop archive → its configured page (never a
+        //    singular post, so url_to_postid() can't reach it).
+        if ( function_exists( 'wc_get_page_id' ) ) {
+            $shop_id = (int) wc_get_page_id( 'shop' );
+            if ( $shop_id > 0 ) {
+                $shop_path = wp_parse_url( get_permalink( $shop_id ), PHP_URL_PATH );
+                if ( $shop_path && trim( $shop_path, '/' ) === $trimmed_path ) {
+                    return $shop_id;
+                }
+            }
+        }
+
+        // Public post types, minus attachments (never a meta target).
+        $public_types = get_post_types( array( 'public' => true ), 'names' );
+        unset( $public_types['attachment'] );
+
+        // 4a. Hierarchical path match (pages nested under a parent).
+        $page = get_page_by_path( $trimmed_path, OBJECT, $public_types );
+        if ( $page instanceof WP_Post ) {
+            return (int) $page->ID;
+        }
+
+        // 4b. Flat slug match on the last path segment — resolves
+        //     WooCommerce products (/product/<slug>/) and posts whose
+        //     permalink base url_to_postid() couldn't parse.
+        $segments = array_values( array_filter( explode( '/', $trimmed_path ) ) );
+        if ( ! empty( $segments ) ) {
+            $slug = end( $segments );
+            $hits = get_posts( array(
+                'name'             => sanitize_title( $slug ),
+                'post_type'        => array_values( $public_types ),
+                'post_status'      => 'publish',
+                'numberposts'      => 1,
+                'fields'           => 'ids',
+                'no_found_rows'    => true,
+                'suppress_filters' => true,
+            ) );
+            if ( ! empty( $hits ) ) {
+                return (int) $hits[0];
+            }
+        }
+
+        return 0;
+    }
+
+    /**
      * Show admin notices for subscription status
      */
     public function subscription_notices() {
