@@ -4,6 +4,11 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.14.1] - 2026-07-28
+
+### Fixed
+- **Auto-update could silently deactivate ("uninstall") the plugin.** If a site checked GitHub in the brief window after a release was published but before CI finished attaching `dsquared-hub-connector.zip`, the updater fell back to GitHub's auto-generated source zipball, which extracts to a `Dsquared-Media-dsquared-hub-connector-<sha>/` folder. That doesn't match the active plugin path, so WordPress lost track of the plugin after the swap and deactivated it. Added an `upgrader_source_selection` filter (`DHC_Updater::fix_source_dir()`) that renames the extracted source folder back to `dsquared-hub-connector/` on every install/update — so the plugin lands correctly no matter which zip WordPress downloaded (zipball, mis-named asset, or manual upload). Only acts on our own plugin (verified by the presence of the main file).
+
 ## [1.14.0] - 2026-07-28
 
 ### Fixed

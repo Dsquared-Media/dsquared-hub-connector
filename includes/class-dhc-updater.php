@@ -47,6 +47,16 @@ class DHC_Updater {
         // from the Plugins screen if they have a reason to pin.
         add_filter( 'auto_update_plugin', array( __CLASS__, 'enable_auto_update' ), 10, 2 );
 
+        // Force the extracted source folder to our plugin slug on install.
+        // GitHub's auto-generated zipball (and any oddly-named asset)
+        // extracts to a folder like "Dsquared-Media-dsquared-hub-connector
+        // -<sha>/", which does NOT match the active plugin path — WordPress
+        // then can't find the plugin after the swap and silently deactivates
+        // (or "uninstalls") it. Renaming the source to dsquared-hub-connector/
+        // before WP moves it into place makes every update land correctly,
+        // no matter which zip was downloaded.
+        add_filter( 'upgrader_source_selection', array( __CLASS__, 'fix_source_dir' ), 10, 4 );
+
         // SVG Support conflict protection: disable SVG sanitization during plugin installs/updates
         add_action( 'upgrader_pre_install', array( __CLASS__, 'disable_svg_support_on_install' ), 1, 2 );
         add_action( 'upgrader_post_install', array( __CLASS__, 'restore_svg_support_after_install' ), 99, 3 );
@@ -79,6 +89,51 @@ class DHC_Updater {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Normalize the extracted source folder to the plugin slug.
+     *
+     * Runs during install/update, before WordPress moves the unpacked
+     * files into wp-content/plugins. If the folder we're about to install
+     * contains our main plugin file but is named anything other than
+     * "dsquared-hub-connector" (e.g. GitHub's sha-suffixed zipball folder),
+     * rename it so the plugin path stays stable and WP doesn't deactivate.
+     *
+     * @param string      $source        Path to the unpacked source folder.
+     * @param string      $remote_source Path to the download's parent dir.
+     * @param WP_Upgrader  $upgrader      Upgrader instance.
+     * @param array       $hook_extra    Extra args (may include 'plugin').
+     * @return string|WP_Error The (possibly renamed) source path.
+     */
+    public static function fix_source_dir( $source, $remote_source, $upgrader = null, $hook_extra = array() ) {
+        global $wp_filesystem;
+
+        // Only touch OUR plugin. During a normal update WP passes the
+        // plugin basename in $hook_extra; during a manual upload it may be
+        // absent, so we also confirm by looking for our main file inside.
+        $is_ours = ( ! empty( $hook_extra['plugin'] ) && defined( 'DHC_PLUGIN_BASENAME' ) && DHC_PLUGIN_BASENAME === $hook_extra['plugin'] );
+        if ( ! $is_ours ) {
+            if ( ! $wp_filesystem || ! $wp_filesystem->exists( trailingslashit( $source ) . 'dsquared-hub-connector.php' ) ) {
+                return $source; // not our plugin — leave it alone
+            }
+        }
+
+        $desired = trailingslashit( $remote_source ) . 'dsquared-hub-connector';
+
+        // Already correctly named — nothing to do.
+        if ( untrailingslashit( $source ) === untrailingslashit( $desired ) ) {
+            return $source;
+        }
+
+        // Rename the extracted folder to the canonical slug.
+        if ( $wp_filesystem && $wp_filesystem->move( untrailingslashit( $source ), $desired, true ) ) {
+            return trailingslashit( $desired );
+        }
+
+        // If the move failed, return the original so the install can still
+        // proceed (worst case = the old behavior, never worse).
+        return $source;
     }
 
     /**
