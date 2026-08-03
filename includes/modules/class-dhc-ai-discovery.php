@@ -738,21 +738,27 @@ class DHC_AI_Discovery {
     /* ─── Robots.txt Entries ─── */
 
     public function add_robots_entries( $output, $public ) {
-        $output .= "\n# Dsquared Hub Connector — AI Discovery\n";
-        $output .= "Allow: /llms.txt\n";
-        $output .= "Allow: /llms-full.txt\n";
-        $output .= "Allow: /.well-known/ai-plugin.json\n";
-        $output .= "\n# LLM-specific crawlers\n";
-        $output .= "User-agent: GPTBot\n";
-        $output .= "Allow: /\n";
-        $output .= "User-agent: Google-Extended\n";
-        $output .= "Allow: /\n";
-        $output .= "User-agent: PerplexityBot\n";
-        $output .= "Allow: /\n";
-        $output .= "User-agent: ClaudeBot\n";
-        $output .= "Allow: /\n";
-        $output .= "User-agent: Applebot-Extended\n";
-        $output .= "Allow: /\n";
+        // Augment the site's existing robots.txt (Yoast/Rank Math/WP core still
+        // own the User-agent:* rules and the Sitemap line) with EXPLICIT access
+        // grants for the AI crawlers we care about — nothing else.
+        //
+        // We intentionally do NOT emit floating "Allow: /llms.txt" /
+        // "/llms-full.txt" / "/.well-known/ai-plugin.json" lines: with no
+        // User-agent group of their own they attached to whichever group
+        // preceded our block (usually "User-agent: *"), which is fragile, and
+        // they were redundant anyway — every AI crawler below already gets
+        // "Allow: /", and no sane robots config disallows those paths. Dropping
+        // them keeps our addition syntactically valid and minimal.
+        //
+        // We add NO Crawl-delay directive (Googlebot ignores it and it trips a
+        // Search Console warning); if a connected site shows "Crawl-delay",
+        // that comes from Yoast/another plugin, not from this connector.
+        $groups = array( 'GPTBot', 'Google-Extended', 'PerplexityBot', 'ClaudeBot', 'Applebot-Extended' );
+        $output .= "\n# Dsquared Hub Connector — AI crawler access\n";
+        foreach ( $groups as $ua ) {
+            $output .= "User-agent: {$ua}\n";
+            $output .= "Allow: /\n";
+        }
         return $output;
     }
 
