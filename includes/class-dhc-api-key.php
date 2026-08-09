@@ -14,8 +14,8 @@ class DHC_API_Key {
     /** @var string Transient key for caching subscription data */
     const CACHE_KEY = 'dhc_subscription_cache';
 
-    /** @var int Cache duration in seconds (12 hours) */
-    const CACHE_DURATION = 43200;
+    /** @var int Cache duration in seconds (60s — fast revocation window) */
+    const CACHE_DURATION = 60;
 
     /**
      * Module tier mapping — defines which modules are available at each tier.

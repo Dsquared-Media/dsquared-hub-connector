@@ -50,15 +50,17 @@ class DHC_Site_Health {
             )
         );
 
-        // Pass config to the script
-        $api_key = get_option( 'dhc_api_key', '' );
+        // Pass config to the script.
+        // SECURITY: The API key is intentionally excluded here. The script
+        // reports metrics to the local WP REST endpoint (/health), which is
+        // unauthenticated and safe for browser beacons. That endpoint then
+        // forwards to the Hub server-side using the stored key — the key
+        // never appears in public page HTML.
         wp_localize_script( 'dhc-site-health', 'dhcHealthConfig', array(
-            'endpoint'    => rest_url( 'dsquared-hub/v1/health' ),
-            'hubEndpoint' => DHC_HUB_API_BASE . '/plugin/cwv-report',
-            'apiKey'      => $api_key,
-            'siteUrl'     => get_site_url(),
-            'nonce'       => wp_create_nonce( 'wp_rest' ),
-            'sampleRate'  => 100, // Report 100% of page loads (adjust for high-traffic sites)
+            'endpoint'   => rest_url( 'dsquared-hub/v1/health' ),
+            'siteUrl'    => get_site_url(),
+            'nonce'      => wp_create_nonce( 'wp_rest' ),
+            'sampleRate' => 100, // Report 100% of page loads (adjust for high-traffic sites)
         ) );
     }
 

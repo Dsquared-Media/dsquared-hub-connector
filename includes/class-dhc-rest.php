@@ -185,6 +185,64 @@ class DHC_REST {
     }
 
     /**
+     * SSRF protection — reject URLs that resolve to private/loopback IP ranges.
+     *
+     * Called before any wp_remote_get() on a caller-supplied URL.  Resolves the
+     * hostname via gethostbyname() and refuses private ranges so the endpoint
+     * cannot be used to probe internal services.
+     *
+     * @param string $url The URL to validate.
+     * @return bool True if the URL is safe to fetch, false otherwise.
+     */
+    public static function dhc_is_safe_url( $url ) {
+        $host = (string) parse_url( $url, PHP_URL_HOST );
+        if ( empty( $host ) ) {
+            return false;
+        }
+
+        // Resolve hostname to IP.
+        $ip = gethostbyname( $host );
+
+        // gethostbyname() returns the original string on failure.
+        if ( $ip === $host && ! filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+            return false;
+        }
+
+        // Reject private, loopback, link-local, and APIPA ranges.
+        $blocked_ranges = array(
+            // Loopback
+            '127.',
+            // RFC 1918 private
+            '10.',
+            '192.168.',
+            // RFC 1918 172.16.0.0/12
+        );
+
+        foreach ( $blocked_ranges as $prefix ) {
+            if ( strpos( $ip, $prefix ) === 0 ) {
+                return false;
+            }
+        }
+
+        // 172.16.0.0 – 172.31.255.255
+        if ( preg_match( '/^172\.(1[6-9]|2\d|3[01])\./', $ip ) ) {
+            return false;
+        }
+
+        // Link-local / APIPA (169.254.0.0/16)
+        if ( strpos( $ip, '169.254.' ) === 0 ) {
+            return false;
+        }
+
+        // IPv6 loopback
+        if ( $ip === '::1' || $ip === '0:0:0:0:0:0:0:1' ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Handle status / health check
      *
      * @param WP_REST_Request $request
@@ -227,6 +285,19 @@ class DHC_REST {
             );
         }
 
+        // SSRF guard: reject URLs that resolve to private/internal IP ranges.
+        // The same-origin host check above blocks obvious off-site targets, but
+        // DNS rebinding or split-horizon DNS could still point the site's own
+        // hostname at an internal address.  dhc_is_safe_url() resolves the IP
+        // and refuses RFC-1918 / loopback / link-local ranges.
+        if ( ! self::dhc_is_safe_url( $url ) ) {
+            return new WP_Error(
+                'ssrf_blocked',
+                'URL resolves to a private or disallowed IP address.',
+                array( 'status' => 403 )
+            );
+        }
+
         // Use wp_remote_get because it resolves to the loopback address
         // when WP_HOME matches — bypasses any edge CDN in front.
         $resp = wp_remote_get( $url, array(
@@ -248,6 +319,28 @@ class DHC_REST {
 
         if ( $code >= 400 ) {
             return new WP_Error( 'upstream_error', 'Upstream returned HTTP ' . $code, array( 'status' => 502 ) );
+        }
+
+        // Content-Type validation: only relay HTML responses.
+        // Rejecting non-HTML types prevents accidentally proxying binary files,
+        // JSON APIs, or other sensitive internal resources.
+        $content_type = strtolower( (string) wp_remote_retrieve_header( $resp, 'content-type' ) );
+        if ( ! empty( $content_type ) ) {
+            $allowed_ct = array( 'text/html', 'application/xhtml' );
+            $ct_ok = false;
+            foreach ( $allowed_ct as $allowed ) {
+                if ( strpos( $content_type, $allowed ) !== false ) {
+                    $ct_ok = true;
+                    break;
+                }
+            }
+            if ( ! $ct_ok ) {
+                return new WP_Error(
+                    'invalid_content_type',
+                    'fetch-page only relays text/html and application/xhtml responses (got: ' . esc_html( substr( $content_type, 0, 80 ) ) . ').',
+                    array( 'status' => 415 )
+                );
+            }
         }
 
         // Cap at 2 MB — a normal post is well under 250 KB.

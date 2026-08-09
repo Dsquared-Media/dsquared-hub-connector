@@ -128,14 +128,8 @@
       }).catch(function() {});
     }
 
-    // Also report to Hub directly
-    if (config.hubEndpoint && config.apiKey) {
-      payload.site_url = config.siteUrl;
-      if (navigator.sendBeacon) {
-        var hubBlob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-        navigator.sendBeacon(config.hubEndpoint + '?key=' + config.apiKey, hubBlob);
-      }
-    }
+    // Hub forwarding is handled server-side by the /health endpoint.
+    // The API key is never passed to the browser.
   }
 
   // Report on page visibility change (user navigating away)
