@@ -8,13 +8,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 - **Outbound plugin-pull crawler** (`DHC_Crawler`) — the plugin now polls the Hub every 5 minutes for queued crawl jobs assigned to this website. When a job is found, the plugin claims it, crawls the site via internal `wp_remote_get()` loopback requests (bypassing any edge WAF such as WP Engine Global Edge Security / Cloudflare Bot Fight Mode), and uploads page data in bounded chunks. The Hub finalises the crawl into a site audit.
-  - Read-only: never modifies WordPress content, settings, users, plugins, or themes.
-  - Bounded: honours `job.config.max_pages`; hard cap at 500 pages per job; 20 pages per cron tick; 50 pages per chunk.
-  - State persisted in `wp_options` (`dhc_active_crawl`) — survives cron tick interruptions; stale state is discarded after 1 hour.
+  - **Mutation contract:** No content, theme, plugin, user, configuration, or SEO-setting mutations. The plugin creates only its own bounded operational state and scheduled-event records. Specifically: writes `dhc_active_crawl` to `wp_options` (job state; deleted on completion/failure/deactivation/upgrade); writes `dhc_crawler_lock` transient (TTL 270 s overlap lock; auto-expiring); registers and unregisters the `dhc_crawler_poll` WP-Cron event on the `dhc_five_minutes` schedule. No other options, post-meta, user-meta, transients, or custom-table rows are written.
+  - Bounded: honours `job.config.max_pages`; hard cap at 500 pages per job; 20 pages per cron tick; 50 pages per chunk; URL queue capped at 2 000 entries.
+  - **Completion is blocking with retry:** the completion POST is synchronous (`blocking: true`). If the Hub does not acknowledge (200 or idempotent 409), the crawl state is preserved and completion is retried on the next cron tick, up to 3 attempts, before the state is discarded and the Hub reaper handles the job.
+  - **Overlap prevention:** a transient lock prevents two WP-Cron invocations from running the crawler simultaneously. Lock expires in 270 s (before the next 300 s tick) even if the process crashes.
+  - **Redirect chain validation:** each page is fetched with `redirection: 0`; every redirect hop is individually validated to ensure it stays on the job's `allowed_domain` before following. Off-domain redirects are rejected.
+  - **Challenge page detection:** Cloudflare Bot Fight Mode and WP Engine interstitial pages are detected by content pattern and rejected; they are not stored as crawl results.
+  - State persisted in `wp_options` (`dhc_active_crawl`) — survives cron tick interruptions; stale state discarded after 1 hour; automatically discarded on plugin upgrade (version mismatch detection).
+  - `api_key` and `hub_url` are NOT stored in crawl state — loaded fresh from `get_option()` / `DHC_Heartbeat` on each tick, reducing the sensitivity of the persisted option.
   - Extracts: title, meta description, H1–H6, canonical, robots/noindex, word count, OG title/description, internal/external links, images with alt text, and per-page issue counts.
   - Chunk uploads are idempotent (duplicate `chunk_index` returns `{duplicate:true}` and the crawler continues).
   - Integrates with existing cron infrastructure — reuses the `dhc_five_minutes` WP-Cron schedule.
-  - Cleaned up on plugin deactivation (`DHC_Crawler::deactivate()`, `dhc_active_crawl` option deleted).
+  - Cleaned up on plugin deactivation (`DHC_Crawler::deactivate()`, `dhc_active_crawl` option and `dhc_crawler_lock` transient deleted).
   - Feature is dark by default — no crawl jobs are offered until `OUTBOUND_CRAWL_ENABLED=true` and `CONNECTOR_JOB_SECRET` are set in Railway (Phase 4 authorisation required).
 
 ## [1.14.1] - 2026-07-28
