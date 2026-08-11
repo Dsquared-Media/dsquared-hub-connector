@@ -3,7 +3,7 @@
  * Plugin Name:       Dsquared Hub Connector
  * Plugin URI:        https://hub.dsquaredmedia.net
  * Description:       Connect your WordPress site to Dsquared Media Hub — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, AI discovery, content decay alerts, and lead capture. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
- * Version:           1.14.1
+ * Version:           1.15.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Dsquared Media
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Plugin constants ────────────────────────────────────────────────
-define( 'DHC_VERSION', '1.14.1' );
+define( 'DHC_VERSION', '1.15.0' );
 define( 'DHC_PLUGIN_FILE', __FILE__ );
 define( 'DHC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -87,6 +87,9 @@ require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-dashboard.php';
 
 // v1.13 Modules
 require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-event-tracker.php';
+
+// v1.15 Modules
+require_once DHC_PLUGIN_DIR . 'includes/class-dhc-crawler.php';
 
 // ── Activation hook ─────────────────────────────────────────────────
 function dhc_activate() {
@@ -178,6 +181,8 @@ function dhc_deactivate() {
         // v1.10 cron hooks
         DHC_Inventory::CRON_HOOK,
         DHC_Link_Scanner::CRON_HOOK,
+        // v1.15 crawler
+        DHC_Crawler::CRON_HOOK,
     );
     foreach ( $crons as $hook ) {
         $timestamp = wp_next_scheduled( $hook );
@@ -186,6 +191,9 @@ function dhc_deactivate() {
         }
         wp_clear_scheduled_hook( $hook );
     }
+
+    // Clear active crawl state if present.
+    delete_option( DHC_Crawler::STATE_KEY );
 
     // Send a final "disconnected" event to the Hub
     $api_key = get_option( 'dhc_api_key', '' );

@@ -4,6 +4,19 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.15.0] - 2026-08-11
+
+### Added
+- **Outbound plugin-pull crawler** (`DHC_Crawler`) — the plugin now polls the Hub every 5 minutes for queued crawl jobs assigned to this website. When a job is found, the plugin claims it, crawls the site via internal `wp_remote_get()` loopback requests (bypassing any edge WAF such as WP Engine Global Edge Security / Cloudflare Bot Fight Mode), and uploads page data in bounded chunks. The Hub finalises the crawl into a site audit.
+  - Read-only: never modifies WordPress content, settings, users, plugins, or themes.
+  - Bounded: honours `job.config.max_pages`; hard cap at 500 pages per job; 20 pages per cron tick; 50 pages per chunk.
+  - State persisted in `wp_options` (`dhc_active_crawl`) — survives cron tick interruptions; stale state is discarded after 1 hour.
+  - Extracts: title, meta description, H1–H6, canonical, robots/noindex, word count, OG title/description, internal/external links, images with alt text, and per-page issue counts.
+  - Chunk uploads are idempotent (duplicate `chunk_index` returns `{duplicate:true}` and the crawler continues).
+  - Integrates with existing cron infrastructure — reuses the `dhc_five_minutes` WP-Cron schedule.
+  - Cleaned up on plugin deactivation (`DHC_Crawler::deactivate()`, `dhc_active_crawl` option deleted).
+  - Feature is dark by default — no crawl jobs are offered until `OUTBOUND_CRAWL_ENABLED=true` and `CONNECTOR_JOB_SECRET` are set in Railway (Phase 4 authorisation required).
+
 ## [1.14.1] - 2026-07-28
 
 ### Fixed

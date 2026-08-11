@@ -48,6 +48,9 @@ class DHC_Core {
         // v1.6: Initialize Hub Sync (AJAX handlers for manual sync)
         DHC_Hub_Sync::init();
 
+        // v1.15: Initialize outbound plugin-pull crawler
+        DHC_Crawler::init();
+
         // Initialize active modules (only if subscription is valid)
         $this->init_modules();
 
