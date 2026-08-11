@@ -192,8 +192,9 @@ function dhc_deactivate() {
         wp_clear_scheduled_hook( $hook );
     }
 
-    // Clear active crawl state if present.
+    // Clear active crawl state and execution lock if present.
     delete_option( DHC_Crawler::STATE_KEY );
+    delete_transient( DHC_Crawler::LOCK_TRANSIENT );
 
     // Send a final "disconnected" event to the Hub
     $api_key = get_option( 'dhc_api_key', '' );
