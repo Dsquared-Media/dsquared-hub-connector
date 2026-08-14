@@ -217,7 +217,7 @@ class DHC_Admin {
                 <div>
                     <strong><?php esc_html_e( 'Your subscription has expired.', 'dsquared-hub-connector' ); ?></strong>
                     <?php esc_html_e( 'All Hub features are currently disabled, but your website is completely unaffected. Keeping an active subscription is suggested to maintain full functionality.', 'dsquared-hub-connector' ); ?>
-                    <a href="https://hub.dsquaredmedia.net/dashboard.html#account" target="_blank"><?php esc_html_e( 'Renew your subscription', 'dsquared-hub-connector' ); ?> &rarr;</a>
+                    <a href="https://hub.dsquaredmedia.net/#account" target="_blank"><?php esc_html_e( 'Open Hub account', 'dsquared-hub-connector' ); ?> &rarr;</a>
                 </div>
             </div>
             <?php endif; ?>
@@ -246,7 +246,7 @@ class DHC_Admin {
                                    placeholder="<?php esc_attr_e( 'Enter your Hub API key', 'dsquared-hub-connector' ); ?>"
                                    autocomplete="off"
                                    style="width:100%;">
-                            <p class="dhc-field-hint"><?php printf( esc_html__( 'Find your API key in %sHub &rarr; Account &rarr; API Keys%s. Stays masked for privacy.', 'dsquared-hub-connector' ), '<a href="https://hub.dsquaredmedia.net/dashboard.html#account" target="_blank">', '</a>' ); ?></p>
+                            <p class="dhc-field-hint"><?php printf( esc_html__( 'Copy the key from %sHub &rarr; Account &rarr; WordPress Connector%s, paste it here, then choose Save & Validate. The key stays masked for privacy.', 'dsquared-hub-connector' ), '<a href="https://hub.dsquaredmedia.net/#account" target="_blank" rel="noopener noreferrer">', '</a>' ); ?></p>
                         </div>
                         <div class="dhc-actions">
                             <button type="button" class="dhc-btn dhc-btn-primary" id="dhc-save-key"><?php esc_html_e( 'Save & Validate', 'dsquared-hub-connector' ); ?></button>

@@ -42,7 +42,7 @@ The Dsquared Hub Connector is a lightweight WordPress plugin that bridges your W
 2. Upload to `wp-content/plugins/dsquared-hub-connector/`
 3. Activate the plugin in WordPress Admin > Plugins
 4. Navigate to **Dsquared Hub** in the admin sidebar
-5. Enter your API key from [Hub > Account > API Keys](https://hub.dsquaredmedia.net/dashboard.html#account)
+5. Enter the API key shown in [Hub → Account → WordPress Connector](https://hub.dsquaredmedia.net/#account)
 6. Enable the modules you want to use
 
 ---

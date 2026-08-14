@@ -56,8 +56,8 @@
  *    website_id, expiry, and that the nonce has not been seen before.
  * 4. Hub issues claim_token {typ:'claim', job_id, website_id, nonce_hash, exp}.
  * 5. Plugin stores claim_token in dhc_active_crawl (never logged).
- * 6. Phase 2 enforcement (deferred): Hub will verify claim_token on each chunk
- *    and completion call. Phase 1: claim_token stored but not yet verified.
+ * 6. Plugin sends claim_token on each chunk and completion call. Hub verifies
+ *    its signature, website/job binding, expiry, and claim nonce session.
  * 7. offer_tokens cannot upload chunks; claim_tokens cannot claim another job.
  * 8. dhc_active_crawl is deleted at terminal states (success, max retries,
  *    TTL expiry, deactivation, upgrade) — claim_token is deleted with it.
@@ -261,6 +261,21 @@ class DHC_Crawler {
 		}
 
 		$job   = $body['job'];
+		$config = $job['config'] ?? array();
+		$allowed_domain = ! empty( $config['allowed_domain'] )
+			? sanitize_text_field( $config['allowed_domain'] )
+			: $this->site_host();
+		$start_url = ! empty( $config['start_url'] )
+			? esc_url_raw( $config['start_url'] )
+			: home_url( '/' );
+
+		// A Hub job must be bound to this exact WordPress site. Reject before
+		// claiming so a stale/misconfigured website record cannot turn the plugin
+		// into a crawler for another host or strand the job in claimed state.
+		if ( $this->norm_host( $allowed_domain ) !== $this->norm_host( $this->site_host() ) ||
+			 ! $this->is_same_domain( $start_url, $this->site_host() ) ) {
+			return;
+		}
 		$nonce = wp_generate_password( 32, false );
 
 		// Pass the offer_token through unchanged — never modify it.
@@ -291,12 +306,7 @@ class DHC_Crawler {
 			return;
 		}
 
-		$config         = $job['config'] ?? array();
 		$max_pages      = min( (int) ( $config['max_pages'] ?? 150 ), self::MAX_PAGES_HARD_CAP );
-		$start_url      = ! empty( $config['start_url'] ) ? esc_url_raw( $config['start_url'] ) : home_url( '/' );
-		$allowed_domain = ! empty( $config['allowed_domain'] )
-			? sanitize_text_field( $config['allowed_domain'] )
-			: $this->site_host();
 
 		// api_key and hub_url are intentionally NOT stored in state.
 		// They are loaded fresh from get_option() / DHC_Heartbeat on each tick,
@@ -325,6 +335,7 @@ class DHC_Crawler {
 
 	private function continue_crawl( $api_key, $hub_url, array $state ) {
 		$job_id         = $state['job_id'];
+		$claim_token    = $state['claim_token'];
 		$allowed_domain = $state['allowed_domain'];
 		$max_pages      = $state['max_pages'];
 		$url_queue      = $state['url_queue'];
@@ -367,7 +378,7 @@ class DHC_Crawler {
 
 		// Upload this tick's pages as one chunk.
 		if ( ! empty( $pages_batch ) ) {
-			$ok = $this->upload_chunk( $api_key, $hub_url, $job_id, $chunk_index, $pages_batch );
+			$ok = $this->upload_chunk( $api_key, $hub_url, $job_id, $claim_token, $chunk_index, $pages_batch );
 			if ( $ok ) {
 				$chunk_index++;
 			} else {
@@ -385,7 +396,7 @@ class DHC_Crawler {
 
 		if ( $done ) {
 			// Blocking completion: verify Hub acknowledges before clearing state.
-			$completed = $this->attempt_complete( $api_key, $hub_url, $job_id );
+			$completed = $this->attempt_complete( $api_key, $hub_url, $job_id, $claim_token );
 			if ( $completed ) {
 				delete_option( self::STATE_KEY );
 			} else {
@@ -415,13 +426,14 @@ class DHC_Crawler {
 	 *
 	 * @return bool true if Hub acknowledged (200 or idempotent 409); false otherwise.
 	 */
-	private function attempt_complete( $api_key, $hub_url, $job_id ) {
+	private function attempt_complete( $api_key, $hub_url, $job_id, $claim_token ) {
 		$resp = wp_remote_post(
 			$hub_url . '/api/connector/jobs/' . rawurlencode( $job_id ) . '/complete',
 			array(
 				'headers' => array(
-					'Content-Type'  => 'application/json',
-					'X-DHC-API-Key' => $api_key,
+					'Content-Type'      => 'application/json',
+					'X-DHC-API-Key'     => $api_key,
+					'X-DHC-Claim-Token' => $claim_token,
 				),
 				'body'    => '{}',
 				'timeout' => 15,
@@ -465,7 +477,7 @@ class DHC_Crawler {
 			return;
 		}
 
-		$completed = $this->attempt_complete( $api_key, $hub_url, $state['job_id'] );
+		$completed = $this->attempt_complete( $api_key, $hub_url, $state['job_id'], $state['claim_token'] );
 		if ( $completed ) {
 			delete_option( self::STATE_KEY );
 		} else {
@@ -798,7 +810,7 @@ class DHC_Crawler {
 
 	// ── Hub API calls ─────────────────────────────────────────────────────────────
 
-	private function upload_chunk( $api_key, $hub_url, $job_id, $chunk_index, array $pages ) {
+	private function upload_chunk( $api_key, $hub_url, $job_id, $claim_token, $chunk_index, array $pages ) {
 		// Cap pages per chunk to Hub's limit.
 		$pages = array_slice( $pages, 0, self::PAGES_PER_CHUNK );
 
@@ -806,8 +818,9 @@ class DHC_Crawler {
 			$hub_url . '/api/connector/jobs/' . rawurlencode( $job_id ) . '/chunks',
 			array(
 				'headers' => array(
-					'Content-Type'  => 'application/json',
-					'X-DHC-API-Key' => $api_key,
+					'Content-Type'      => 'application/json',
+					'X-DHC-API-Key'     => $api_key,
+					'X-DHC-Claim-Token' => $claim_token,
 				),
 				'body'    => wp_json_encode( array(
 					'chunk_index' => $chunk_index,

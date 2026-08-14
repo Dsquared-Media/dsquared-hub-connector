@@ -224,7 +224,7 @@ class DHC_Core {
             echo '<div class="notice notice-warning">';
             echo '<p><strong>' . esc_html__( 'Dsquared Hub Connector', 'dsquared-hub-connector' ) . '</strong> — ';
             echo esc_html__( 'Your subscription has expired. All Hub features are currently disabled, but your website is completely unaffected. Keeping an active subscription is suggested to maintain full functionality.', 'dsquared-hub-connector' );
-            echo ' <a href="https://hub.dsquaredmedia.net/dashboard.html#account" target="_blank">' . esc_html__( 'Renew your subscription', 'dsquared-hub-connector' ) . '</a></p>';
+            echo ' <a href="https://hub.dsquaredmedia.net/#account" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Open Hub account', 'dsquared-hub-connector' ) . '</a></p>';
             echo '</div>';
         } elseif ( ! $subscription['valid'] && empty( $subscription['expired'] ) ) {
             echo '<div class="notice notice-error">';
