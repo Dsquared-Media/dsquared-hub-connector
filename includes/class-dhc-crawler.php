@@ -16,6 +16,9 @@
  *                          Written on claim; updated each tick; deleted on
  *                          completion, terminal failure, TTL expiry,
  *                          plugin deactivation, and plugin upgrade.
+ *     dhc_crawler_diagnostics — bounded last-attempt timestamp/result plus an
+ *                          optional HTTP status, error code, or job ID. It
+ *                          never contains credentials, tokens, URLs, or bodies.
  *
  *   wp_options rows READ (never written by this class):
  *     dhc_api_key        — plugin API key (owner sets this in wp-admin).
@@ -84,6 +87,9 @@ class DHC_Crawler {
 	/** Transient key for per-tick execution lock */
 	const LOCK_TRANSIENT = 'dhc_crawler_lock';
 
+	/** Bounded, non-secret diagnostics shown to site administrators. */
+	const DIAGNOSTICS_KEY = 'dhc_crawler_diagnostics';
+
 	/**
 	 * Lock TTL: 270 s < 300 s tick interval.
 	 * If a tick dies without releasing the lock, it auto-expires before the
@@ -136,6 +142,7 @@ class DHC_Crawler {
 		add_filter( 'cron_schedules', array( $this, 'add_cron_interval' ) );
 		add_action( 'init',           array( $this, 'schedule_poll' ) );
 		add_action( self::CRON_HOOK,  array( $this, 'run_poll_tick' ) );
+		add_action( 'admin_init',     array( $this, 'maybe_wake_overdue_poll' ), 1 );
 	}
 
 	public function add_cron_interval( $schedules ) {
@@ -157,7 +164,14 @@ class DHC_Crawler {
 	 */
 	public function schedule_poll() {
 		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
-			wp_schedule_event( time(), self::INTERVAL_NAME, self::CRON_HOOK );
+			$scheduled = wp_schedule_event( time(), self::INTERVAL_NAME, self::CRON_HOOK, array(), true );
+			if ( is_wp_error( $scheduled ) ) {
+				$this->record_diagnostic( 'schedule_failed', array(
+					'error_code' => sanitize_key( $scheduled->get_error_code() ),
+				) );
+			} else {
+				$this->record_diagnostic( 'scheduled' );
+			}
 		}
 
 		// Upgrade state cleanup: if the stored state was written by a different
@@ -171,6 +185,37 @@ class DHC_Crawler {
 		}
 	}
 
+	/**
+	 * Ask WordPress to dispatch an overdue crawler event on admin traffic.
+	 *
+	 * Normal front-end requests already invoke WordPress cron. This small
+	 * fallback covers sites with unusual cron bootstrap/order behaviour after
+	 * an auto-update, without running the network crawl inside an admin request.
+	 */
+	public function maybe_wake_overdue_poll() {
+		$this->schedule_poll();
+		$next = wp_next_scheduled( self::CRON_HOOK );
+		if ( $next && $next <= time() && function_exists( 'spawn_cron' ) ) {
+			spawn_cron( time() );
+		}
+	}
+
+	/** Return bounded diagnostics. Tokens, keys, URLs and response bodies are never stored. */
+	public static function get_diagnostics() {
+		$value = get_option( self::DIAGNOSTICS_KEY, array() );
+		return is_array( $value ) ? $value : array();
+	}
+
+	private function record_diagnostic( $result, array $extra = array() ) {
+		$diagnostic = array_merge( array(
+			'last_attempt_at' => gmdate( 'c' ),
+			'last_result'     => sanitize_key( $result ),
+		), array_intersect_key( $extra, array_flip( array(
+			'http_status', 'error_code', 'job_id',
+		) ) ) );
+		update_option( self::DIAGNOSTICS_KEY, $diagnostic, false );
+	}
+
 	public static function deactivate() {
 		$ts = wp_next_scheduled( self::CRON_HOOK );
 		if ( $ts ) {
@@ -178,6 +223,7 @@ class DHC_Crawler {
 		}
 		wp_clear_scheduled_hook( self::CRON_HOOK );
 		delete_option( self::STATE_KEY );
+		delete_option( self::DIAGNOSTICS_KEY );
 		delete_transient( self::LOCK_TRANSIENT );
 	}
 
@@ -204,14 +250,17 @@ class DHC_Crawler {
 	public function run_poll_tick() {
 		$api_key = get_option( 'dhc_api_key', '' );
 		if ( empty( $api_key ) ) {
+			$this->record_diagnostic( 'missing_api_key' );
 			return;
 		}
 
 		// Overlap prevention.
 		if ( get_transient( self::LOCK_TRANSIENT ) ) {
+			$this->record_diagnostic( 'locked' );
 			return;
 		}
 		set_transient( self::LOCK_TRANSIENT, 1, self::LOCK_TTL_SEC );
+		$this->record_diagnostic( 'tick_started' );
 
 		try {
 			$hub_url = DHC_Heartbeat::get_hub_url();
@@ -249,14 +298,22 @@ class DHC_Crawler {
 		) );
 
 		if ( is_wp_error( $resp ) ) {
+			$this->record_diagnostic( 'poll_transport_error', array(
+				'error_code' => sanitize_key( $resp->get_error_code() ),
+			) );
 			return;
 		}
-		if ( 200 !== (int) wp_remote_retrieve_response_code( $resp ) ) {
+		$poll_status = (int) wp_remote_retrieve_response_code( $resp );
+		if ( 200 !== $poll_status ) {
+			$this->record_diagnostic( 204 === $poll_status ? 'idle' : 'poll_http_error', array(
+				'http_status' => $poll_status,
+			) );
 			return; // 503 = feature disabled; 401 = bad key; 204 = no jobs.
 		}
 
 		$body = json_decode( wp_remote_retrieve_body( $resp ), true );
 		if ( empty( $body['job']['id'] ) || empty( $body['job']['offer_token'] ) ) {
+			$this->record_diagnostic( 'idle', array( 'http_status' => 200 ) );
 			return; // No job queued.
 		}
 
@@ -274,6 +331,9 @@ class DHC_Crawler {
 		// into a crawler for another host or strand the job in claimed state.
 		if ( $this->norm_host( $allowed_domain ) !== $this->norm_host( $this->site_host() ) ||
 			 ! $this->is_same_domain( $start_url, $this->site_host() ) ) {
+			$this->record_diagnostic( 'offer_domain_mismatch', array(
+				'job_id' => sanitize_text_field( $job['id'] ),
+			) );
 			return;
 		}
 		$nonce = wp_generate_password( 32, false );
@@ -295,14 +355,26 @@ class DHC_Crawler {
 		);
 
 		if ( is_wp_error( $claim_resp ) ) {
+			$this->record_diagnostic( 'claim_transport_error', array(
+				'error_code' => sanitize_key( $claim_resp->get_error_code() ),
+				'job_id'     => sanitize_text_field( $job['id'] ),
+			) );
 			return;
 		}
-		if ( 200 !== (int) wp_remote_retrieve_response_code( $claim_resp ) ) {
+		$claim_status = (int) wp_remote_retrieve_response_code( $claim_resp );
+		if ( 200 !== $claim_status ) {
+			$this->record_diagnostic( 'claim_http_error', array(
+				'http_status' => $claim_status,
+				'job_id'     => sanitize_text_field( $job['id'] ),
+			) );
 			return; // Already claimed or offer expired.
 		}
 
 		$claim_body = json_decode( wp_remote_retrieve_body( $claim_resp ), true );
 		if ( empty( $claim_body['claim_token'] ) ) {
+			$this->record_diagnostic( 'claim_token_missing', array(
+				'job_id' => sanitize_text_field( $job['id'] ),
+			) );
 			return;
 		}
 
@@ -328,6 +400,10 @@ class DHC_Crawler {
 		);
 
 		update_option( self::STATE_KEY, $state, false );
+		$this->record_diagnostic( 'claimed', array(
+			'http_status' => 200,
+			'job_id'     => sanitize_text_field( $job['id'] ),
+		) );
 		$this->continue_crawl( $api_key, $hub_url, $state );
 	}
 

@@ -8,6 +8,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const crawler = fs.readFileSync(path.join(root, 'includes/class-dhc-crawler.php'), 'utf8');
 const admin = fs.readFileSync(path.join(root, 'includes/class-dhc-admin.php'), 'utf8');
+const plugin = fs.readFileSync(path.join(root, 'dsquared-hub-connector.php'), 'utf8');
 
 test('crawl uploads and completion send the claim token issued for the job', () => {
   assert.match(crawler, /X-DHC-Claim-Token'\s*=>\s*\$claim_token/g);
@@ -34,4 +35,25 @@ test('connection instructions point to the current Hub account route', () => {
   assert.match(admin, /https:\/\/hub\.dsquaredmedia\.net\/#account/);
   assert.match(admin, /WordPress Connector/);
   assert.doesNotMatch(admin, /dashboard\.html#account/);
+});
+
+test('crawler recurrence self-heals on activation, upgrade, init, and admin traffic', () => {
+  assert.match(plugin, /DHC_Crawler::init\(\)->schedule_poll\(\)/);
+  assert.ok((plugin.match(/DHC_Crawler::init\(\)->schedule_poll\(\)/g) || []).length >= 3);
+  assert.match(crawler, /add_action\( 'init',\s+array\( \$this, 'schedule_poll' \) \)/);
+  assert.match(crawler, /add_action\( 'admin_init',\s+array\( \$this, 'maybe_wake_overdue_poll' \)/);
+  assert.match(crawler, /spawn_cron\( time\(\) \)/);
+  assert.match(crawler, /wp_schedule_event\( time\(\), self::INTERVAL_NAME, self::CRON_HOOK, array\(\), true \)/);
+});
+
+test('crawler stores bounded diagnostics without response bodies or credentials', () => {
+  assert.match(crawler, /const DIAGNOSTICS_KEY = 'dhc_crawler_diagnostics'/);
+  assert.match(crawler, /poll_transport_error/);
+  assert.match(crawler, /offer_domain_mismatch/);
+  assert.match(crawler, /claim_http_error/);
+  assert.match(crawler, /'http_status', 'error_code', 'job_id'/);
+  const diagnosticMethod = crawler.match(/private function record_diagnostic[\s\S]+?\n\t}/)?.[0] || '';
+  assert.doesNotMatch(diagnosticMethod, /api_key|offer_token|claim_token|response_body|site_url/);
+  assert.match(admin, /Hub scan worker/);
+  assert.match(admin, /Last scan check/);
 });

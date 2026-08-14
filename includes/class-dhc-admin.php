@@ -173,6 +173,8 @@ class DHC_Admin {
             $ai_profile = get_option( 'dhc_ai_business_profile', array() );
         }
         $last_heartbeat = get_option( 'dhc_last_heartbeat', array() );
+		$crawler_diagnostics = class_exists( 'DHC_Crawler' ) ? DHC_Crawler::get_diagnostics() : array();
+		$crawler_next_run = class_exists( 'DHC_Crawler' ) ? wp_next_scheduled( DHC_Crawler::CRON_HOOK ) : false;
         ?>
         <div class="dhc-wrap">
             <!-- Header -->
@@ -287,6 +289,14 @@ class DHC_Admin {
                                 <span class="dhc-info-label"><?php esc_html_e( 'REST Endpoint', 'dsquared-hub-connector' ); ?></span>
                                 <span class="dhc-info-value dhc-mono"><?php echo esc_html( rest_url( 'dsquared-hub/v1/' ) ); ?></span>
                             </div>
+							<div class="dhc-info-item">
+								<span class="dhc-info-label"><?php esc_html_e( 'Hub scan worker', 'dsquared-hub-connector' ); ?></span>
+								<span class="dhc-info-value"><?php echo $crawler_next_run ? esc_html( sprintf( __( 'Scheduled · last result: %s', 'dsquared-hub-connector' ), $crawler_diagnostics['last_result'] ?? 'waiting' ) ) : esc_html__( 'Not scheduled', 'dsquared-hub-connector' ); ?></span>
+							</div>
+							<div class="dhc-info-item">
+								<span class="dhc-info-label"><?php esc_html_e( 'Last scan check', 'dsquared-hub-connector' ); ?></span>
+								<span class="dhc-info-value"><?php echo ! empty( $crawler_diagnostics['last_attempt_at'] ) ? esc_html( $crawler_diagnostics['last_attempt_at'] ) : '—'; ?></span>
+							</div>
                         </div>
                     </div>
                 </div>

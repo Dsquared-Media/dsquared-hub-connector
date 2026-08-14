@@ -4,6 +4,12 @@ All notable changes to the Dsquared Hub Connector will be documented in this fil
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.15.1] - 2026-08-14
+
+### Fixed
+- The outbound scan worker now creates and validates its recurring poll event during activation, upgrades, normal initialization, and admin self-healing. An overdue event is safely handed to WordPress cron on admin traffic, fixing installations that remained healthy but never claimed queued Hub scans after upgrading to 1.15.0.
+- Added bounded scan-worker diagnostics to the Connection screen so administrators can see scheduling and the last safe poll/claim result. Diagnostics never store API keys, offer/claim tokens, URLs, or response bodies.
+
 ## [1.15.0] - 2026-08-11
 
 ### Added

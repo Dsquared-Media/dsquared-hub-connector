@@ -3,7 +3,7 @@
  * Plugin Name:       Dsquared Hub Connector
  * Plugin URI:        https://hub.dsquaredmedia.net
  * Description:       Connect your WordPress site to Dsquared Media Hub — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, AI discovery, content decay alerts, and lead capture. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
- * Version:           1.15.0
+ * Version:           1.15.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Dsquared Media
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Plugin constants ────────────────────────────────────────────────
-define( 'DHC_VERSION', '1.15.0' );
+define( 'DHC_VERSION', '1.15.1' );
 define( 'DHC_PLUGIN_FILE', __FILE__ );
 define( 'DHC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -146,6 +146,10 @@ function dhc_activate() {
         wp_schedule_event( time(), DHC_Heartbeat::INTERVAL_NAME, DHC_Heartbeat::CRON_HOOK );
     }
 
+    // v1.15: activation can run after plugins_loaded, so initialize the
+    // crawler here before scheduling its custom five-minute recurrence.
+    DHC_Crawler::init()->schedule_poll();
+
     // v1.10: schedule daily inventory push + weekly link scan
     if ( class_exists( 'DHC_Inventory' ) )    DHC_Inventory::schedule();
     if ( class_exists( 'DHC_Link_Scanner' ) ) DHC_Link_Scanner::schedule();
@@ -194,6 +198,7 @@ function dhc_deactivate() {
 
     // Clear active crawl state and execution lock if present.
     delete_option( DHC_Crawler::STATE_KEY );
+    delete_option( DHC_Crawler::DIAGNOSTICS_KEY );
     delete_transient( DHC_Crawler::LOCK_TRANSIENT );
 
     // Send a final "disconnected" event to the Hub
@@ -239,6 +244,7 @@ function dhc_init() {
     add_action( 'admin_init', function() {
         if ( class_exists( 'DHC_Inventory' ) )    DHC_Inventory::schedule();
         if ( class_exists( 'DHC_Link_Scanner' ) ) DHC_Link_Scanner::schedule();
+        if ( class_exists( 'DHC_Crawler' ) )      DHC_Crawler::init()->schedule_poll();
 
         // Self-heal rewrite rules. AI Discovery registers /llms.txt and
         // /.well-known/ai-plugin.json rewrites, which stop working when
@@ -263,6 +269,7 @@ function dhc_init() {
         // data in the Link Scanner sub-page immediately after update.
         if ( class_exists( 'DHC_Inventory' ) )    DHC_Inventory::schedule();
         if ( class_exists( 'DHC_Link_Scanner' ) ) DHC_Link_Scanner::schedule();
+        if ( class_exists( 'DHC_Crawler' ) )      DHC_Crawler::init()->schedule_poll();
         // Defer rewrite flush + llms.txt regen to 'init' — $wp_rewrite
         // doesn't exist on plugins_loaded, and regenerate_static_files()
         // calls get_permalink() which dereferences it (v1.13.3/1.13.4
