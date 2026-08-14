@@ -9,7 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 - The outbound scan worker now creates and validates its recurring poll event during activation, upgrades, normal initialization, and admin self-healing. An overdue event is safely handed to WordPress cron on admin traffic, fixing installations that remained healthy but never claimed queued Hub scans after upgrading to 1.15.0.
 - Added bounded scan-worker diagnostics to the Connection screen so administrators can see scheduling and the last safe poll/claim result. Diagnostics never store API keys, offer/claim tokens, URLs, or response bodies.
-- Capped accepted Hub scan jobs at 160 pages so eight crawl ticks plus completion retries fit inside the Hub's one-hour claim lease. The previous 500-page cap required at least 125 minutes and could never complete before the token expired.
+- Capped accepted Hub scan jobs at the shared 100-page maximum so five crawl ticks plus completion retries fit comfortably inside the Hub's one-hour claim lease. The previous 500-page cap required at least 125 minutes and could never complete before the token expired.
 
 ## [1.15.0] - 2026-08-11
 

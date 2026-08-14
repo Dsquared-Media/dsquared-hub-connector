@@ -105,12 +105,13 @@ class DHC_Crawler {
 	const PAGES_PER_CHUNK = 50;
 
 	/**
-	 * Bound the crawl to eight ticks (40 minutes at the normal cadence).
+	 * Match the Hub-supported 100-page maximum: five crawl ticks (25 minutes)
+	 * at the normal cadence.
 	 * Hub claim tokens and leases expire after one hour, so accepting the old
 	 * 500-page value (25 ticks / 125 minutes) guaranteed expiry mid-crawl.
-	 * The remaining 20 minutes cover delayed WP-Cron ticks and completion retries.
+	 * The remaining lease time covers delayed WP-Cron ticks and completion retries.
 	 */
-	const MAX_PAGES_HARD_CAP = 160;
+	const MAX_PAGES_HARD_CAP = 100;
 
 	/**
 	 * Maximum URL queue depth.

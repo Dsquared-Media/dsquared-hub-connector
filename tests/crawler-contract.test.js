@@ -68,7 +68,7 @@ test('accepted page cap fits inside the one-hour Hub claim lease with retry head
   const crawlTicks = Math.ceil(maxPages / pagesPerTick);
   const worstCaseSeconds = (crawlTicks + completionAttempts) * cadenceSeconds;
 
-  assert.equal(maxPages, 160);
+  assert.equal(maxPages, 100);
   assert.ok(stateTtl < 3600, 'local state must expire before the Hub lease/token');
   assert.ok(worstCaseSeconds <= stateTtl, 'crawl and all completion attempts must fit inside local TTL');
 });
