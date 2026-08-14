@@ -17,7 +17,8 @@
  *                          completion, terminal failure, TTL expiry,
  *                          plugin deactivation, and plugin upgrade.
  *     dhc_crawler_diagnostics — bounded last-attempt timestamp/result plus an
- *                          optional HTTP status, error code, or job ID. It
+ *                          optional HTTP status, error code, job ID, or bounded
+ *                          requested/effective page counts. It
  *                          never contains credentials, tokens, URLs, or bodies.
  *
  *   wp_options rows READ (never written by this class):
@@ -103,8 +104,13 @@ class DHC_Crawler {
 	/** Pages per chunk upload — Hub MAX_PAGES_PER_CHUNK is 100 */
 	const PAGES_PER_CHUNK = 50;
 
-	/** Absolute upper bound on total pages per job */
-	const MAX_PAGES_HARD_CAP = 500;
+	/**
+	 * Bound the crawl to eight ticks (40 minutes at the normal cadence).
+	 * Hub claim tokens and leases expire after one hour, so accepting the old
+	 * 500-page value (25 ticks / 125 minutes) guaranteed expiry mid-crawl.
+	 * The remaining 20 minutes cover delayed WP-Cron ticks and completion retries.
+	 */
+	const MAX_PAGES_HARD_CAP = 160;
 
 	/**
 	 * Maximum URL queue depth.
@@ -114,7 +120,7 @@ class DHC_Crawler {
 	const MAX_QUEUE_SIZE = 2000;
 
 	/** Seconds before we abandon a stale job state */
-	const STATE_TTL_SEC = 3600;
+	const STATE_TTL_SEC = 3300;
 
 	/** Per-page fetch timeout in seconds */
 	const PAGE_TIMEOUT = 15;
@@ -211,7 +217,7 @@ class DHC_Crawler {
 			'last_attempt_at' => gmdate( 'c' ),
 			'last_result'     => sanitize_key( $result ),
 		), array_intersect_key( $extra, array_flip( array(
-			'http_status', 'error_code', 'job_id',
+			'http_status', 'error_code', 'job_id', 'requested_pages', 'effective_pages',
 		) ) ) );
 		update_option( self::DIAGNOSTICS_KEY, $diagnostic, false );
 	}
@@ -269,6 +275,9 @@ class DHC_Crawler {
 			// Discard state that has been running too long.
 			if ( is_array( $state ) && ! empty( $state['created_at'] ) ) {
 				if ( ( time() - (int) $state['created_at'] ) > self::STATE_TTL_SEC ) {
+					$this->record_diagnostic( 'state_expired', array(
+						'job_id' => sanitize_text_field( $state['job_id'] ?? '' ),
+					) );
 					delete_option( self::STATE_KEY );
 					$state = null;
 				}
@@ -378,7 +387,8 @@ class DHC_Crawler {
 			return;
 		}
 
-		$max_pages      = min( (int) ( $config['max_pages'] ?? 150 ), self::MAX_PAGES_HARD_CAP );
+		$requested_max_pages = max( 1, (int) ( $config['max_pages'] ?? 150 ) );
+		$max_pages           = min( $requested_max_pages, self::MAX_PAGES_HARD_CAP );
 
 		// api_key and hub_url are intentionally NOT stored in state.
 		// They are loaded fresh from get_option() / DHC_Heartbeat on each tick,
@@ -400,9 +410,11 @@ class DHC_Crawler {
 		);
 
 		update_option( self::STATE_KEY, $state, false );
-		$this->record_diagnostic( 'claimed', array(
-			'http_status' => 200,
-			'job_id'     => sanitize_text_field( $job['id'] ),
+		$this->record_diagnostic( $requested_max_pages > $max_pages ? 'claimed_with_page_cap' : 'claimed', array(
+			'http_status'        => 200,
+			'job_id'            => sanitize_text_field( $job['id'] ),
+			'requested_pages'    => $requested_max_pages,
+			'effective_pages'    => $max_pages,
 		) );
 		$this->continue_crawl( $api_key, $hub_url, $state );
 	}
@@ -464,6 +476,9 @@ class DHC_Crawler {
 				$state['chunk_index']    = $chunk_index;
 				$state['total_uploaded'] = $total_uploaded - count( $pages_batch );
 				update_option( self::STATE_KEY, $state, false );
+				$this->record_diagnostic( 'chunk_upload_failed', array(
+					'job_id' => sanitize_text_field( $job_id ),
+				) );
 				return;
 			}
 		}
@@ -475,6 +490,9 @@ class DHC_Crawler {
 			$completed = $this->attempt_complete( $api_key, $hub_url, $job_id, $claim_token );
 			if ( $completed ) {
 				delete_option( self::STATE_KEY );
+				$this->record_diagnostic( 'completed', array(
+					'job_id' => sanitize_text_field( $job_id ),
+				) );
 			} else {
 				// First completion attempt failed — enter retry phase.
 				// State is preserved so crawl data is not lost; next tick retries.
@@ -485,6 +503,9 @@ class DHC_Crawler {
 				$state['total_uploaded']    = $total_uploaded;
 				$state['complete_attempts'] = 1;
 				update_option( self::STATE_KEY, $state, false );
+				$this->record_diagnostic( 'completion_pending', array(
+					'job_id' => sanitize_text_field( $job_id ),
+				) );
 			}
 		} else {
 			$state['url_queue']      = $url_queue;
@@ -492,6 +513,9 @@ class DHC_Crawler {
 			$state['chunk_index']    = $chunk_index;
 			$state['total_uploaded'] = $total_uploaded;
 			update_option( self::STATE_KEY, $state, false );
+			$this->record_diagnostic( 'crawl_in_progress', array(
+				'job_id' => sanitize_text_field( $job_id ),
+			) );
 		}
 	}
 
@@ -550,15 +574,24 @@ class DHC_Crawler {
 		if ( $attempts >= self::MAX_COMPLETE_ATTEMPTS ) {
 			// Terminal: exceeded retry budget. Hub reaper will clean up the job.
 			delete_option( self::STATE_KEY );
+			$this->record_diagnostic( 'completion_abandoned', array(
+				'job_id' => sanitize_text_field( $state['job_id'] ),
+			) );
 			return;
 		}
 
 		$completed = $this->attempt_complete( $api_key, $hub_url, $state['job_id'], $state['claim_token'] );
 		if ( $completed ) {
 			delete_option( self::STATE_KEY );
+			$this->record_diagnostic( 'completed', array(
+				'job_id' => sanitize_text_field( $state['job_id'] ),
+			) );
 		} else {
 			$state['complete_attempts'] = $attempts + 1;
 			update_option( self::STATE_KEY, $state, false );
+			$this->record_diagnostic( 'completion_pending', array(
+				'job_id' => sanitize_text_field( $state['job_id'] ),
+			) );
 		}
 	}
 

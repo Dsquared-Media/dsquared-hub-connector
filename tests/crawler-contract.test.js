@@ -51,9 +51,33 @@ test('crawler stores bounded diagnostics without response bodies or credentials'
   assert.match(crawler, /poll_transport_error/);
   assert.match(crawler, /offer_domain_mismatch/);
   assert.match(crawler, /claim_http_error/);
-  assert.match(crawler, /'http_status', 'error_code', 'job_id'/);
+  assert.match(crawler, /'http_status', 'error_code', 'job_id', 'requested_pages', 'effective_pages'/);
   const diagnosticMethod = crawler.match(/private function record_diagnostic[\s\S]+?\n\t}/)?.[0] || '';
   assert.doesNotMatch(diagnosticMethod, /api_key|offer_token|claim_token|response_body|site_url/);
   assert.match(admin, /Hub scan worker/);
   assert.match(admin, /Last scan check/);
+});
+
+test('accepted page cap fits inside the one-hour Hub claim lease with retry headroom', () => {
+  const number = (name) => Number(crawler.match(new RegExp(`const ${name} = (\\d+);`))?.[1]);
+  const pagesPerTick = number('PAGES_PER_TICK');
+  const maxPages = number('MAX_PAGES_HARD_CAP');
+  const stateTtl = number('STATE_TTL_SEC');
+  const completionAttempts = number('MAX_COMPLETE_ATTEMPTS');
+  const cadenceSeconds = 300;
+  const crawlTicks = Math.ceil(maxPages / pagesPerTick);
+  const worstCaseSeconds = (crawlTicks + completionAttempts) * cadenceSeconds;
+
+  assert.equal(maxPages, 160);
+  assert.ok(stateTtl < 3600, 'local state must expire before the Hub lease/token');
+  assert.ok(worstCaseSeconds <= stateTtl, 'crawl and all completion attempts must fit inside local TTL');
+});
+
+test('diagnostics distinguish idle, active, capped, pending, and terminal states', () => {
+  for (const state of [
+    'idle', 'claimed', 'claimed_with_page_cap', 'crawl_in_progress',
+    'completion_pending', 'completed', 'completion_abandoned', 'state_expired',
+  ]) {
+    assert.match(crawler, new RegExp(`['\"]${state}['\"]`));
+  }
 });
