@@ -149,12 +149,6 @@ class DHC_Crawler {
 		add_filter( 'cron_schedules', array( $this, 'add_cron_interval' ) );
 		add_action( 'init',           array( $this, 'schedule_poll' ) );
 		add_action( self::CRON_HOOK,  array( $this, 'run_poll_tick' ) );
-		// Heartbeats are already proven to run on connected sites. Use that
-		// authoritative five-minute event as a fallback so a missing/stale
-		// crawler-specific cron row cannot strand Hub scans in queued forever.
-		// Priority 20 runs after the heartbeat POST; the shared transient below
-		// prevents a second tick if both cron hooks fire in the same window.
-		add_action( DHC_Heartbeat::CRON_HOOK, array( $this, 'run_poll_tick' ), 20 );
 		add_action( 'admin_init',     array( $this, 'maybe_wake_overdue_poll' ), 1 );
 	}
 
@@ -301,9 +295,7 @@ class DHC_Crawler {
 				$this->poll_and_start( $api_key, $hub_url );
 			}
 		} finally {
-			// Keep the cadence lock until its 270-second TTL expires. The separate
-			// crawler event and heartbeat fallback can occur in the same cron
-			// request; releasing here would allow two crawl batches in one window.
+			delete_transient( self::LOCK_TRANSIENT );
 		}
 	}
 

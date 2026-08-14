@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.15.2
+Stable tag: 1.15.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,10 +64,6 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
-
-= 1.15.2 =
-*   Fix: Run the Hub scan worker from the proven heartbeat schedule as well as its dedicated cron, preventing queued scans when a host drops the newer cron row.
-*   Safety: Keep the crawler cadence lock for 270 seconds so overlapping heartbeat and crawler events cannot process two batches.
 
 = 1.5.0 =
 *   New: AI Discovery module — generates `llms.txt`, LocalBusiness schema, and pings IndexNow.

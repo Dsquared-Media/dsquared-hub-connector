@@ -46,23 +46,6 @@ test('crawler recurrence self-heals on activation, upgrade, init, and admin traf
   assert.match(crawler, /wp_schedule_event\( time\(\), self::INTERVAL_NAME, self::CRON_HOOK, array\(\), true \)/);
 });
 
-test('the proven heartbeat cron also drives one crawler tick per cadence window', () => {
-  assert.match(crawler, /add_action\( self::CRON_HOOK,\s+array\( \$this, 'run_poll_tick' \) \)/);
-  assert.match(crawler, /add_action\( DHC_Heartbeat::CRON_HOOK,\s*array\( \$this, 'run_poll_tick' \), 20 \)/);
-  assert.match(crawler, /const LOCK_TTL_SEC = 270/);
-  const tick = crawler.match(/public function run_poll_tick\(\)[\s\S]+?\n\t}/)?.[0] || '';
-  assert.match(tick, /get_transient\( self::LOCK_TRANSIENT \)/);
-  assert.match(tick, /set_transient\( self::LOCK_TRANSIENT, 1, self::LOCK_TTL_SEC \)/);
-  assert.doesNotMatch(tick, /delete_transient\( self::LOCK_TRANSIENT \)/);
-});
-
-test('release metadata identifies the cron callback repair version', () => {
-  const readme = fs.readFileSync(path.join(root, 'readme.txt'), 'utf8');
-  assert.match(plugin, /Version:\s+1\.15\.2/);
-  assert.match(plugin, /define\( 'DHC_VERSION', '1\.15\.2' \)/);
-  assert.match(readme, /Stable tag:\s+1\.15\.2/);
-});
-
 test('crawler stores bounded diagnostics without response bodies or credentials', () => {
   assert.match(crawler, /const DIAGNOSTICS_KEY = 'dhc_crawler_diagnostics'/);
   assert.match(crawler, /poll_transport_error/);
