@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.2
+
+- Runs the pull-crawler worker from the proven heartbeat schedule as a fallback while retaining the dedicated five-minute crawler event.
+- Keeps a short cadence lock so both hooks cannot process two crawl batches in one window.
+- Preserves the last meaningful crawler diagnostic when the fallback encounters that expected lock.
+
 All notable changes to the Dsquared Hub Connector will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).

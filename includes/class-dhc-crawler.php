@@ -269,7 +269,13 @@ class DHC_Crawler {
 
 		// Overlap prevention.
 		if ( get_transient( self::LOCK_TRANSIENT ) ) {
-			$this->record_diagnostic( 'locked' );
+			// The heartbeat fallback and dedicated crawler event can fire in the
+			// same cron window. Preserve the first tick's meaningful result (idle,
+			// claimed, crawling, completed, or an actionable error) instead of
+			// replacing it with an expected cadence-lock observation.
+			$diagnostic = self::get_diagnostics();
+			$diagnostic['last_locked_at'] = gmdate( 'c' );
+			update_option( self::DIAGNOSTICS_KEY, $diagnostic, false );
 			return;
 		}
 		set_transient( self::LOCK_TRANSIENT, 1, self::LOCK_TTL_SEC );

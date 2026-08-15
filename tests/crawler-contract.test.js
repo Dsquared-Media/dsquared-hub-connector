@@ -75,6 +75,14 @@ test('crawler stores bounded diagnostics without response bodies or credentials'
   assert.match(admin, /Last scan check/);
 });
 
+test('expected cadence lock preserves the prior crawler result', () => {
+  const lockBranch = crawler.match(/if \( get_transient\( self::LOCK_TRANSIENT \) \) \{[\s\S]+?\n\t\t\}/)?.[0] || '';
+  assert.match(lockBranch, /self::get_diagnostics\(\)/);
+  assert.match(lockBranch, /\['last_locked_at'\]/);
+  assert.doesNotMatch(lockBranch, /record_diagnostic\(\s*['"]locked['"]/);
+  assert.doesNotMatch(lockBranch, /\['last_result'\]\s*=/);
+});
+
 test('accepted page cap fits inside the one-hour Hub claim lease with retry headroom', () => {
   const number = (name) => Number(crawler.match(new RegExp(`const ${name} = (\\d+);`))?.[1]);
   const pagesPerTick = number('PAGES_PER_TICK');
