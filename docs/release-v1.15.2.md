@@ -4,7 +4,7 @@
 
 - Plugin code commit: `4bc740a` (includes the heartbeat fallback and diagnostic-preservation fix)
 - Artifact: `dsquared-hub-connector-v1.15.2-4bc740a-final.zip`
-- SHA-256: `ba9ddcce0afff62657e09ce5b3a7dbab70e4dc9cf430d08ca27bf45d8dc7a401`
+- SHA-256: `6db2236484e9ef58ba7db7d00b00c3192a144f33cbdd7bb7f2e99a097614f036`
 
 ## What changed
 
@@ -18,6 +18,8 @@
 - All crawler contract tests pass.
 - Every PHP file passes syntax validation.
 - The release ZIP has one `dsquared-hub-connector/` root and passes archive integrity checks.
+- The archive was built deterministically from commit `4bc740a` with the
+  release-workflow exclusions and a fixed `2026-08-15 00:00` entry timestamp.
 
 ## Required live canary after publication
 
