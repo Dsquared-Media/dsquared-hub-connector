@@ -6,6 +6,17 @@ v1.16.0 adds renewable, claim-bound large-site crawling. One Website Health or
 Marketing Audit run can crawl up to 500 pages without splitting the customer
 experience into separate audits.
 
+## Prepared artifact
+
+- Source commit: `30efc4e14d69337357d5bf3e9b7cf8f3e9dec53d`
+- Local artifact: `build/dsquared-hub-connector-v1.16.0-30efc4e.zip`
+- SHA-256: `4cafca8c8b79fc859dae4276dc72f889b00d07115a076c9141e06c56cccb9121`
+- Archive validation: one `dsquared-hub-connector/` root; plugin header,
+  `DHC_VERSION`, and WordPress stable tag all report v1.16.0.
+
+This artifact is prepared locally only. Publication, update-check verification,
+installation, and live canaries still require explicit release approval.
+
 ## Security and lifecycle contract
 
 - Every accepted or idempotently repeated chunk rotates the claim token.
