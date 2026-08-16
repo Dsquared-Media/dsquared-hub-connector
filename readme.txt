@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.15.2
+Stable tag: 1.16.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,10 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.16.0 =
+* Large-site scans now support up to 500 pages in one logical audit. Each accepted chunk rotates the same tenant/job/connector/nonce-bound claim and renews its one-hour idle lease, with a four-hour absolute cap.
+* A transient chunk-upload failure restores the pre-tick URL frontier so pages are retried instead of silently skipped.
 
 = 1.15.2 =
 *   Fix: Run the Hub scan worker from the proven heartbeat schedule as well as its dedicated cron, preventing queued scans when a host drops the newer cron row.

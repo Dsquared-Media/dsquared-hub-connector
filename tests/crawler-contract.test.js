@@ -56,11 +56,11 @@ test('the proven heartbeat cron also drives one crawler tick per cadence window'
   assert.doesNotMatch(tick, /delete_transient\( self::LOCK_TRANSIENT \)/);
 });
 
-test('release metadata identifies the cron callback repair version', () => {
+test('release metadata identifies the renewable large-site crawler version', () => {
   const readme = fs.readFileSync(path.join(root, 'readme.txt'), 'utf8');
-  assert.match(plugin, /Version:\s+1\.15\.2/);
-  assert.match(plugin, /define\( 'DHC_VERSION', '1\.15\.2' \)/);
-  assert.match(readme, /Stable tag:\s+1\.15\.2/);
+  assert.match(plugin, /Version:\s+1\.16\.0/);
+  assert.match(plugin, /define\( 'DHC_VERSION', '1\.16\.0' \)/);
+  assert.match(readme, /Stable tag:\s+1\.16\.0/);
 });
 
 test('crawler stores bounded diagnostics without response bodies or credentials', () => {
@@ -83,19 +83,31 @@ test('expected cadence lock preserves the prior crawler result', () => {
   assert.doesNotMatch(lockBranch, /\['last_result'\]\s*=/);
 });
 
-test('accepted page cap fits inside the one-hour Hub claim lease with retry headroom', () => {
+test('large-site cap fits inside the renewable claim absolute duration', () => {
   const number = (name) => Number(crawler.match(new RegExp(`const ${name} = (\\d+);`))?.[1]);
   const pagesPerTick = number('PAGES_PER_TICK');
   const maxPages = number('MAX_PAGES_HARD_CAP');
-  const stateTtl = number('STATE_TTL_SEC');
+  const idleTtl = number('STATE_IDLE_TTL_SEC');
+  const absoluteTtl = number('STATE_ABSOLUTE_TTL_SEC');
   const completionAttempts = number('MAX_COMPLETE_ATTEMPTS');
   const cadenceSeconds = 300;
   const crawlTicks = Math.ceil(maxPages / pagesPerTick);
   const worstCaseSeconds = (crawlTicks + completionAttempts) * cadenceSeconds;
 
-  assert.equal(maxPages, 100);
-  assert.ok(stateTtl < 3600, 'local state must expire before the Hub lease/token');
-  assert.ok(worstCaseSeconds <= stateTtl, 'crawl and all completion attempts must fit inside local TTL');
+  assert.equal(maxPages, 500);
+  assert.equal(idleTtl, 3600);
+  assert.equal(absoluteTtl, 14400);
+  assert.ok(worstCaseSeconds <= absoluteTtl, 'crawl and all completion attempts must fit inside absolute TTL');
+  assert.match(crawler, /\$state\['last_progress_at'\]\s*=\s*time\(\)/);
+  assert.match(crawler, /\$state\['claim_token'\]\s*=\s*\$claim_token/);
+  assert.match(crawler, /empty\( \$body\['claim_token'\] \)/);
+});
+
+test('a failed chunk restores the pre-tick frontier instead of losing pages', () => {
+  assert.match(crawler, /\$queue_before_tick\s*=\s*\$url_queue/);
+  assert.match(crawler, /\$visited_before_tick\s*=\s*\$visited/);
+  assert.match(crawler, /\$state\['url_queue'\]\s*=\s*\$queue_before_tick/);
+  assert.match(crawler, /\$state\['visited'\]\s*=\s*\$visited_before_tick/);
 });
 
 test('diagnostics distinguish idle, active, capped, pending, and terminal states', () => {
@@ -105,4 +117,10 @@ test('diagnostics distinguish idle, active, capped, pending, and terminal states
   ]) {
     assert.match(crawler, new RegExp(`['\"]${state}['\"]`));
   }
+});
+
+test('completion only clears state after an explicit Hub success response', () => {
+  const completion = crawler.match(/private function attempt_complete[\s\S]+?\n\t}/)?.[0] || '';
+  assert.match(completion, /200 === \$code/);
+  assert.doesNotMatch(completion, /409 === \$code/);
 });

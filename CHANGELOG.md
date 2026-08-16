@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.16.0
+
+- Large-site connector scans can cover up to 500 pages in one audit. Successful and idempotent chunk receipts rotate the website/job/connector/nonce-bound claim and renew its one-hour idle lease, while a four-hour absolute duration guard prevents runaway jobs.
+- Transient chunk upload failures restore the exact pre-tick queue and visited set so the next WordPress cron tick retries the same pages instead of losing them.
+
 ## 1.15.2
 
 - Runs the pull-crawler worker from the proven heartbeat schedule as a fallback while retaining the dedicated five-minute crawler event.

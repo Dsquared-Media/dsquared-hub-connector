@@ -1,6 +1,6 @@
 <?php
 /**
- * DHC_Crawler — Outbound plugin-pull site crawler (v1.15.0, Stage 3 hardened)
+ * DHC_Crawler — Outbound plugin-pull site crawler (v1.16.0)
  *
  * Polls the Hub every 5 minutes for queued crawl jobs assigned to this
  * website. When a job is found: claims it, crawls the site via internal
@@ -105,13 +105,11 @@ class DHC_Crawler {
 	const PAGES_PER_CHUNK = 50;
 
 	/**
-	 * Match the Hub-supported 100-page maximum: five crawl ticks (25 minutes)
-	 * at the normal cadence.
-	 * Hub claim tokens and leases expire after one hour, so accepting the old
-	 * 500-page value (25 ticks / 125 minutes) guaranteed expiry mid-crawl.
-	 * The remaining lease time covers delayed WP-Cron ticks and completion retries.
+	 * Match the Hub-supported 500-page maximum. The Hub renews the same
+	 * website/job/connector/nonce-bound claim after each accepted chunk, while
+	 * retaining a one-hour idle lease and a four-hour absolute duration cap.
 	 */
-	const MAX_PAGES_HARD_CAP = 100;
+	const MAX_PAGES_HARD_CAP = 500;
 
 	/**
 	 * Maximum URL queue depth.
@@ -120,8 +118,11 @@ class DHC_Crawler {
 	 */
 	const MAX_QUEUE_SIZE = 2000;
 
-	/** Seconds before we abandon a stale job state */
-	const STATE_TTL_SEC = 3300;
+	/** One hour without an accepted chunk is genuinely stale. */
+	const STATE_IDLE_TTL_SEC = 3600;
+
+	/** Absolute local runaway guard, aligned with the Hub claim-duration cap. */
+	const STATE_ABSOLUTE_TTL_SEC = 14400;
 
 	/** Per-page fetch timeout in seconds */
 	const PAGE_TIMEOUT = 15;
@@ -250,8 +251,8 @@ class DHC_Crawler {
 	 * - The Hub's job reaper expires unclaimed jobs after their TTL.
 	 * - An in-progress crawl that misses ticks will resume on the next
 	 *   real page load — STATE_KEY preserves the queue and chunk_index.
-	 * - After STATE_TTL_SEC (1 h) of no ticks, state is discarded and the
-	 *   Hub reaper marks the job failed/expired.
+	 * - After one hour without accepted progress, or four hours total, state is
+	 *   discarded and the Hub reaper marks the job failed/expired.
 	 * - Alternatives (WP Cron alternative like Action Scheduler, server cron)
 	 *   are outside this plugin's scope and may be recommended to site owners.
 	 *
@@ -285,11 +286,17 @@ class DHC_Crawler {
 			$hub_url = DHC_Heartbeat::get_hub_url();
 			$state   = get_option( self::STATE_KEY, null );
 
-			// Discard state that has been running too long.
+			// Discard only genuinely idle or absolutely overlong state. A healthy
+			// 500-page crawl can span more than one hour at the five-minute cadence.
 			if ( is_array( $state ) && ! empty( $state['created_at'] ) ) {
-				if ( ( time() - (int) $state['created_at'] ) > self::STATE_TTL_SEC ) {
+				$created_at      = (int) $state['created_at'];
+				$last_progress_at = (int) ( $state['last_progress_at'] ?? $created_at );
+				$absolute_expired = ( time() - $created_at ) > self::STATE_ABSOLUTE_TTL_SEC;
+				$idle_expired     = ( time() - $last_progress_at ) > self::STATE_IDLE_TTL_SEC;
+				if ( $absolute_expired || $idle_expired ) {
 					$this->record_diagnostic( 'state_expired', array(
 						'job_id' => sanitize_text_field( $state['job_id'] ?? '' ),
+						'reason' => $absolute_expired ? 'absolute_duration' : 'idle_timeout',
 					) );
 					delete_option( self::STATE_KEY );
 					$state = null;
@@ -422,6 +429,7 @@ class DHC_Crawler {
 			'total_uploaded'    => 0,
 			'complete_attempts' => 0,
 			'created_at'        => time(),
+			'last_progress_at'  => time(),
 		);
 
 		update_option( self::STATE_KEY, $state, false );
@@ -448,6 +456,9 @@ class DHC_Crawler {
 
 		$pages_batch = array();
 		$budget      = self::PAGES_PER_TICK;
+		$queue_before_tick    = $url_queue;
+		$visited_before_tick  = $visited;
+		$uploaded_before_tick = $total_uploaded;
 
 		while ( $budget > 0 && ! empty( $url_queue ) && $total_uploaded < $max_pages ) {
 			$url = array_shift( $url_queue );
@@ -481,15 +492,21 @@ class DHC_Crawler {
 
 		// Upload this tick's pages as one chunk.
 		if ( ! empty( $pages_batch ) ) {
-			$ok = $this->upload_chunk( $api_key, $hub_url, $job_id, $claim_token, $chunk_index, $pages_batch );
-			if ( $ok ) {
+			$upload = $this->upload_chunk( $api_key, $hub_url, $job_id, $claim_token, $chunk_index, $pages_batch );
+			if ( ! empty( $upload['ok'] ) ) {
 				$chunk_index++;
+				if ( ! empty( $upload['claim_token'] ) ) {
+					$claim_token = sanitize_text_field( $upload['claim_token'] );
+				}
+				$state['claim_token']      = $claim_token;
+				$state['last_progress_at'] = time();
 			} else {
-				// Upload failed — persist state and retry next tick without advancing.
-				$state['url_queue']      = $url_queue;
-				$state['visited']        = $visited;
+				// Upload failed — restore the exact pre-tick frontier. Advancing the
+				// visited set here would silently lose pages on a transient Hub error.
+				$state['url_queue']      = $queue_before_tick;
+				$state['visited']        = $visited_before_tick;
 				$state['chunk_index']    = $chunk_index;
-				$state['total_uploaded'] = $total_uploaded - count( $pages_batch );
+				$state['total_uploaded'] = $uploaded_before_tick;
 				update_option( self::STATE_KEY, $state, false );
 				$this->record_diagnostic( 'chunk_upload_failed', array(
 					'job_id' => sanitize_text_field( $job_id ),
@@ -539,7 +556,8 @@ class DHC_Crawler {
 	/**
 	 * Single blocking completion attempt.
 	 *
-	 * @return bool true if Hub acknowledged (200 or idempotent 409); false otherwise.
+	 * @return bool true only when Hub acknowledged success (including an
+	 *              explicit idempotent-success response); false otherwise.
 	 */
 	private function attempt_complete( $api_key, $hub_url, $job_id, $claim_token ) {
 		$resp = wp_remote_post(
@@ -563,13 +581,6 @@ class DHC_Crawler {
 		$code = (int) wp_remote_retrieve_response_code( $resp );
 
 		if ( 200 === $code ) {
-			return true;
-		}
-
-		// 409 = job already past the crawling state (e.g. Hub already finalised it
-		// from a prior partial response, or admin triggered finalization).
-		// Idempotent: treat as success — no need to retry.
-		if ( 409 === $code ) {
 			return true;
 		}
 
@@ -955,16 +966,26 @@ class DHC_Crawler {
 		);
 
 		if ( is_wp_error( $resp ) ) {
-			return false;
+			return array( 'ok' => false );
 		}
 
 		$code = (int) wp_remote_retrieve_response_code( $resp );
-		if ( 200 === $code ) {
-			return true;
-		}
-		// 409 duplicate is acceptable (idempotent re-upload on retry).
 		$body = json_decode( wp_remote_retrieve_body( $resp ), true );
-		return ! empty( $body['duplicate'] );
+		if ( 200 !== $code || ( empty( $body['ok'] ) && empty( $body['duplicate'] ) ) ) {
+			return array( 'ok' => false );
+		}
+
+		// Every accepted or idempotent chunk rotates the short-lived claim token.
+		// Refuse to advance without it: continuing on the old token would make a
+		// large crawl fail unpredictably at the original one-hour boundary.
+		if ( empty( $body['claim_token'] ) ) {
+			return array( 'ok' => false );
+		}
+		return array(
+			'ok'          => true,
+			'duplicate'   => ! empty( $body['duplicate'] ),
+			'claim_token' => sanitize_text_field( $body['claim_token'] ),
+		);
 	}
 
 	// ── HTML helpers ─────────────────────────────────────────────────────────────
