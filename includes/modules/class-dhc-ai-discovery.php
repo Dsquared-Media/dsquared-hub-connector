@@ -105,10 +105,16 @@ class DHC_AI_Discovery {
             return new WP_Error( 'empty_profile', 'No business profile to write.' );
         }
 
+        // Skip regenerating llms.txt if a curated version was pushed from the Hub
+        // (stored in dhc_llms_txt_raw). The raw option is the source of truth for
+        // llms.txt on nginx hosts; regenerating would overwrite it.
+        $has_raw = (bool) get_option( 'dhc_llms_txt_raw', '' );
         $files = array(
-            ABSPATH . 'llms.txt'      => $this->generate_llms_summary( $profile ),
             ABSPATH . 'llms-full.txt' => $this->generate_llms_full( $profile ),
         );
+        if ( ! $has_raw ) {
+            $files[ ABSPATH . 'llms.txt' ] = $this->generate_llms_summary( $profile );
+        }
 
         foreach ( $files as $path => $content ) {
             $ok = @file_put_contents( $path, $content );
