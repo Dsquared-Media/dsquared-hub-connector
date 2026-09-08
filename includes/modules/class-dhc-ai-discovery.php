@@ -134,6 +134,19 @@ class DHC_AI_Discovery {
 
         $is_full = ( $uri === 'llms-full.txt' );
 
+        // Raw content pushed from Hub takes precedence over generated content.
+        if ( ! $is_full ) {
+            $raw = get_option( 'dhc_llms_txt_raw', '' );
+            if ( is_string( $raw ) && trim( $raw ) !== '' ) {
+                status_header( 200 );
+                header( 'Content-Type: text/plain; charset=utf-8' );
+                header( 'X-Robots-Tag: noindex' );
+                header( 'Cache-Control: public, max-age=3600' );
+                echo $raw;
+                exit;
+            }
+        }
+
         $profile = get_option( 'dhc_business_profile', array() );
         if ( empty( $profile ) ) {
             $profile = $this->build_fallback_profile();
@@ -191,6 +204,17 @@ class DHC_AI_Discovery {
                 $is_llms_full = true;
             } else {
                 return;
+            }
+        }
+
+        // Raw content pushed from Hub takes precedence over generated content.
+        if ( $is_llms && ! $is_llms_full ) {
+            $raw = get_option( 'dhc_llms_txt_raw', '' );
+            if ( is_string( $raw ) && trim( $raw ) !== '' ) {
+                header( 'Content-Type: text/plain; charset=utf-8' );
+                header( 'X-Robots-Tag: noindex' );
+                echo $raw;
+                exit;
             }
         }
 
@@ -776,11 +800,81 @@ class DHC_AI_Discovery {
             'callback' => array( $this, 'manual_ping' ),
             'permission_callback' => array( $this, 'check_api_key' ),
         ) );
+
+        // Raw push — Hub sends verbatim llms.txt content, plugin writes it directly.
+        register_rest_route( 'dsquared-hub/v1', '/ai-discovery/raw', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'write_raw_content' ),
+            'permission_callback' => array( $this, 'check_api_key' ),
+        ) );
+    }
+
+    /**
+     * Static callback used by the top-level /ai-discovery route registered in
+     * class-dhc-rest.php. Delegates to the singleton instance's save_profile so
+     * both routes share the same logic.
+     */
+    public static function handle_request( $request ) {
+        return self::init()->save_profile( $request );
     }
 
     public function check_api_key( $request ) {
         $result = DHC_API_Key::authenticate_request( $request );
         return ( true === $result );
+    }
+
+    /**
+     * Write verbatim llms.txt content sent from the Hub.
+     *
+     * Stores in two places so both server configurations are covered:
+     *   1. Physical file at ABSPATH/llms.txt — nginx hosts with try_files
+     *      serve this directly without invoking PHP.
+     *   2. dhc_llms_txt_raw WP option — dynamic handlers check this first
+     *      so PHP-served hosts also return the curated content rather than
+     *      re-generating from the business profile.
+     */
+    public function write_raw_content( $request ) {
+        $data    = $request->get_json_params();
+        $content = $data['content'] ?? '';
+        if ( ! is_string( $content ) || trim( $content ) === '' ) {
+            return new WP_Error( 'empty_content', 'content field is required', array( 'status' => 400 ) );
+        }
+
+        // Normalize line endings, ensure UTF-8, strip any null bytes.
+        $content = str_replace( "\r\n", "\n", $content );
+        $content = str_replace( "\r", "\n", $content );
+        $content = preg_replace( '/\0/', '', $content );
+
+        // Write physical file — required on nginx hosts.
+        $path = ABSPATH . 'llms.txt';
+        $ok   = @file_put_contents( $path, $content );
+        if ( $ok === false ) {
+            return new WP_Error(
+                'write_failed',
+                'Could not write to ' . $path . '. Check WP-root write permissions.',
+                array( 'status' => 500 )
+            );
+        }
+        @chmod( $path, 0644 );
+
+        // Store in option so PHP dynamic handler serves the same content.
+        update_option( 'dhc_llms_txt_raw', $content );
+
+        $this->log_activity( 'Raw llms.txt written (' . strlen( $content ) . ' bytes) via Hub push' );
+
+        if ( class_exists( 'DHC_Event_Logger' ) ) {
+            DHC_Event_Logger::ai_discovery(
+                'llms_txt_raw_pushed',
+                array( 'bytes' => strlen( $content ), 'time' => current_time( 'mysql' ) ),
+                'Raw llms.txt pushed from Hub'
+            );
+        }
+
+        return new WP_REST_Response( array(
+            'success' => true,
+            'message' => 'llms.txt written (' . strlen( $content ) . ' bytes)',
+            'url'     => home_url( '/llms.txt' ),
+        ), 200 );
     }
 
     public function save_profile( $request ) {
