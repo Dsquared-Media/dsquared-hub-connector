@@ -124,6 +124,17 @@ class DHC_AI_Discovery {
             }
         }
 
+        // Ensure nginx/Apache serves the physical .txt files as UTF-8.
+        // Without this, servers that don't add a charset header will render
+        // smart quotes and em dashes as mojibake (â€" instead of —).
+        $htaccess = ABSPATH . '.htaccess';
+        $marker   = '# DHC: force UTF-8 charset on llms txt files';
+        $block    = "\n{$marker}\n<FilesMatch \"^llms.*\\.txt$\">\n    AddCharset UTF-8 .txt\n</FilesMatch>\n# /DHC: force UTF-8 charset\n";
+        $current  = @file_get_contents( $htaccess );
+        if ( $current !== false && strpos( $current, $marker ) === false ) {
+            @file_put_contents( $htaccess, $current . $block );
+        }
+
         if ( empty( $written ) ) {
             return new WP_Error( 'write_failed', 'Could not write to ABSPATH. Check WP-root write permissions.' );
         }
@@ -345,8 +356,8 @@ class DHC_AI_Discovery {
         // output exactly (# name, > description, ## Type, ## Services,
         // ## Service Areas, ## Contact, ## Hours) so the live /llms.txt
         // matches what the user sees in the Hub, field for field.
-        $name     = $profile['business_name'] ?? get_bloginfo( 'name' );
-        $desc     = $profile['description'] ?? get_bloginfo( 'description' );
+        $name     = html_entity_decode( $profile['business_name'] ?? get_bloginfo( 'name' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        $desc     = html_entity_decode( $profile['description'] ?? get_bloginfo( 'description' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
         $type     = $profile['business_type'] ?? '';
         $url      = home_url( '/' );
         $phone    = $profile['phone'] ?? '';
@@ -402,8 +413,8 @@ class DHC_AI_Discovery {
     /* ─── Generate llms-full.txt (detailed) ─── */
 
     private function generate_llms_full( $profile ) {
-        $name     = $profile['business_name'] ?? get_bloginfo( 'name' );
-        $desc     = $profile['description'] ?? get_bloginfo( 'description' );
+        $name     = html_entity_decode( $profile['business_name'] ?? get_bloginfo( 'name' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        $desc     = html_entity_decode( $profile['description'] ?? get_bloginfo( 'description' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
         $url      = home_url( '/' );
         $phone    = $profile['phone'] ?? '';
         $email    = $profile['email'] ?? '';
@@ -496,7 +507,8 @@ class DHC_AI_Discovery {
         $output .= "## Key Pages\n\n";
         $pages = get_pages( array( 'number' => 20, 'sort_column' => 'menu_order' ) );
         foreach ( $pages as $page ) {
-            $output .= "- [{$page->post_title}](" . get_permalink( $page->ID ) . ")\n";
+            $title   = html_entity_decode( $page->post_title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+            $output .= "- [{$title}](" . get_permalink( $page->ID ) . ")\n";
         }
         $output .= "\n";
 
@@ -506,7 +518,8 @@ class DHC_AI_Discovery {
             $output .= "## Recent Articles\n\n";
             foreach ( $posts as $post ) {
                 $date    = date( 'm/d/Y', strtotime( $post->post_date ) );
-                $output .= "- [{$post->post_title}](" . get_permalink( $post->ID ) . ") — {$date}\n";
+                $title   = html_entity_decode( $post->post_title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+                $output .= "- [{$title}](" . get_permalink( $post->ID ) . ") \xe2\x80\x94 {$date}\n";
             }
             $output .= "\n";
         }
