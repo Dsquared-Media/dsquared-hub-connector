@@ -105,15 +105,18 @@ class DHC_AI_Discovery {
             return new WP_Error( 'empty_profile', 'No business profile to write.' );
         }
 
-        // Skip regenerating llms.txt if a curated version was pushed from the Hub
-        // (stored in dhc_llms_txt_raw). The raw option is the source of truth for
-        // llms.txt on nginx hosts; regenerating would overwrite it.
-        $has_raw = (bool) get_option( 'dhc_llms_txt_raw', '' );
+        // llms.txt and llms-full.txt both carry the full business profile content
+        // (Key Pages + Recent Articles) so AI crawlers that only fetch llms.txt
+        // still see the complete picture. Skip llms.txt only if a Hub-curated
+        // version is stored in dhc_llms_txt_raw — that raw content already has
+        // whatever the Hub operator chose to put there.
+        $has_raw  = (bool) get_option( 'dhc_llms_txt_raw', '' );
+        $full     = $this->generate_llms_full( $profile );
         $files = array(
-            ABSPATH . 'llms-full.txt' => $this->generate_llms_full( $profile ),
+            ABSPATH . 'llms-full.txt' => $full,
         );
         if ( ! $has_raw ) {
-            $files[ ABSPATH . 'llms.txt' ] = $this->generate_llms_summary( $profile );
+            $files[ ABSPATH . 'llms.txt' ] = $full;
         }
 
         foreach ( $files as $path => $content ) {
@@ -179,11 +182,9 @@ class DHC_AI_Discovery {
         header( 'Content-Type: text/plain; charset=utf-8' );
         header( 'X-Robots-Tag: noindex' );
         header( 'Cache-Control: public, max-age=3600' );
-        if ( $is_full ) {
-            echo $this->generate_llms_full( $profile );
-        } else {
-            echo $this->generate_llms_summary( $profile );
-        }
+        // Both llms.txt and llms-full.txt serve the full profile so AI crawlers
+        // that only fetch llms.txt still get Key Pages + Recent Articles.
+        echo $this->generate_llms_full( $profile );
         exit;
     }
 
