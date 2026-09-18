@@ -157,6 +157,11 @@ function dhc_activate() {
     // Attempt AI Discovery auto-populate from Hub (deferred to avoid blocking activation)
     wp_schedule_single_event( time() + 10, 'dhc_auto_populate_profile' );
 
+    // Provision a narrow telemetry token (public-safe; replaces dhc_api_key in
+    // public HTML for event tracker and CWV beacon). Deferred 5s so the API key
+    // option is guaranteed committed before the HTTP call goes out.
+    wp_schedule_single_event( time() + 5, 'dhc_provision_telemetry_token' );
+
     // Flush rewrite rules for REST endpoints
     flush_rewrite_rules();
 }
@@ -168,6 +173,11 @@ add_action( 'dhc_auto_populate_profile', function() {
         DHC_Hub_Sync::auto_populate_on_enable();
     }
 } );
+
+// Provision a narrow public-safe telemetry token on activation (and on any
+// cron retry when dhc_telemetry_token is missing). The private dhc_api_key
+// must never appear in public page HTML.
+add_action( 'dhc_provision_telemetry_token', array( 'DHC_Heartbeat', 'maybe_provision_telemetry_token' ) );
 
 // ── Deactivation hook ───────────────────────────────────────────────
 function dhc_deactivate() {
@@ -182,6 +192,7 @@ function dhc_deactivate() {
         'dhc_monthly_lead_reset',
         DHC_Heartbeat::CRON_HOOK,
         'dhc_auto_populate_profile',
+        'dhc_provision_telemetry_token',
         // v1.10 cron hooks
         DHC_Inventory::CRON_HOOK,
         DHC_Link_Scanner::CRON_HOOK,

@@ -163,4 +163,59 @@ class DHC_Heartbeat {
         }
         wp_clear_scheduled_hook( self::CRON_HOOK );
     }
+
+    /**
+     * Provision a narrow telemetry token from the Hub.
+     *
+     * The full connector key (dhc_api_key) must NEVER appear in public HTML
+     * because it also authenticates privileged Hub and WordPress REST write
+     * routes (post, schema, seo-meta, posts/content, seo-meta/bulk, media/alt).
+     * The telemetry token (dhc_telemetry_token) is a Hub-issued credential
+     * scoped to heartbeat, event/events, and cwv-report only — safe to embed
+     * in public JavaScript for beacon/CWV reporting.
+     *
+     * Called on activation and when the API key is saved, so the public-safe
+     * token is available immediately for the event tracker and site health modules.
+     *
+     * @return bool True if a valid token is already stored or was just provisioned.
+     */
+    public static function maybe_provision_telemetry_token() {
+        $api_key = get_option( 'dhc_api_key', '' );
+        if ( empty( $api_key ) ) {
+            return false;
+        }
+
+        // Skip if a token is already stored — no need to re-provision.
+        $existing = get_option( 'dhc_telemetry_token', '' );
+        if ( ! empty( $existing ) ) {
+            return true;
+        }
+
+        $hub_url = self::get_hub_url();
+
+        $response = wp_remote_post( $hub_url . '/api/plugin/telemetry-token', array(
+            'body'    => wp_json_encode( array( 'site_url' => home_url( '/' ) ) ),
+            'headers' => array(
+                'Content-Type'  => 'application/json',
+                'X-DHC-API-Key' => $api_key,
+                'X-DHC-Site-Url' => home_url( '/' ),
+            ),
+            'timeout'  => 15,
+            'blocking' => true,
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            return false;
+        }
+
+        $code = wp_remote_retrieve_response_code( $response );
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+        if ( 200 === $code && ! empty( $body['telemetry_token'] ) ) {
+            update_option( 'dhc_telemetry_token', sanitize_text_field( $body['telemetry_token'] ) );
+            return true;
+        }
+
+        return false;
+    }
 }
