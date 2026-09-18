@@ -337,13 +337,22 @@ class DHC_Event_Tracker {
 				var batch = beacon_queue.slice(0);
 				var payload = JSON.stringify({ events: batch, site_url: BEACON.site_url });
 
-				if (useSendBeacon && navigator.sendBeacon) {
-					// pagehide path: sendBeacon is fire-and-forget, no response available.
-					// Splice optimistically — we can't await the result on page unload.
+				if (useSendBeacon) {
+					// pagehide path: sendBeacon cannot set custom headers, and putting the
+					// token in the URL (?k=) would expose it in server access logs and CDN
+					// caches. Use fetch(keepalive:true) instead — browsers are required to
+					// honour keepalive during page unload since the Fetch spec was updated.
+					// If fetch isn't available (very old browsers) we drop the batch rather
+					// than risk leaking the token in a URL.
 					beacon_queue.splice(0, batch.length);
 					try {
-						var url = BEACON.url + (BEACON.url.indexOf('?') >= 0 ? '&' : '?') + 'k=' + encodeURIComponent(BEACON.api_key);
-						navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }));
+						fetch(BEACON.url, {
+							method: 'POST',
+							credentials: 'omit',
+							headers: { 'Content-Type': 'application/json', 'X-DHC-API-Key': BEACON.api_key, 'X-DHC-Site-Url': BEACON.site_url },
+							body: payload,
+							keepalive: true
+						}).catch(function() { /* fire-and-forget on unload */ });
 					} catch (e) { /* never block page unload */ }
 					return;
 				}

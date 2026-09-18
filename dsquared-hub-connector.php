@@ -3,7 +3,7 @@
  * Plugin Name:       Dsquared Hub Connector
  * Plugin URI:        https://hub.dsquaredmedia.net
  * Description:       Connect your WordPress site to Dsquared Media Hub — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, AI discovery, content decay alerts, and lead capture. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
- * Version:           1.17.3
+ * Version:           1.17.4
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Dsquared Media
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Plugin constants ────────────────────────────────────────────────
-define( 'DHC_VERSION', '1.17.3' );
+define( 'DHC_VERSION', '1.17.4' );
 define( 'DHC_PLUGIN_FILE', __FILE__ );
 define( 'DHC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -281,6 +281,13 @@ function dhc_init() {
         if ( class_exists( 'DHC_Inventory' ) )    DHC_Inventory::schedule();
         if ( class_exists( 'DHC_Link_Scanner' ) ) DHC_Link_Scanner::schedule();
         if ( class_exists( 'DHC_Crawler' ) )      DHC_Crawler::init()->schedule_poll();
+        // Existing installs upgrading from v1.17.3 and earlier never ran the
+        // activation hook for this version, so dhc_telemetry_token was never
+        // provisioned. Provision it now on first load after upgrade.
+        if ( empty( get_option( 'dhc_telemetry_token', '' ) ) ) {
+            wp_schedule_single_event( time() + 5, 'dhc_provision_telemetry_token' );
+        }
+
         // Defer rewrite flush + llms.txt regen to 'init' — $wp_rewrite
         // doesn't exist on plugins_loaded, and regenerate_static_files()
         // calls get_permalink() which dereferences it (v1.13.3/1.13.4

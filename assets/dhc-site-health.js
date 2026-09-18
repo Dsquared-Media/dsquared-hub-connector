@@ -128,13 +128,22 @@
       }).catch(function() {});
     }
 
-    // Also report to Hub directly
+    // Report to Hub directly via fetch with header auth.
+    // sendBeacon cannot set custom headers, so we use fetch(keepalive:true) instead.
+    // The telemetry token is passed in the X-DHC-API-Key header, NOT in the URL —
+    // URL params appear in server access logs and CDN caches; headers do not.
     if (config.hubEndpoint && config.apiKey) {
       payload.site_url = config.siteUrl;
-      if (navigator.sendBeacon) {
-        var hubBlob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-        navigator.sendBeacon(config.hubEndpoint + '?key=' + config.apiKey, hubBlob);
-      }
+      fetch(config.hubEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type':   'application/json',
+          'X-DHC-API-Key':  config.apiKey,
+          'X-DHC-Site-Url': config.siteUrl || ''
+        },
+        body:      JSON.stringify(payload),
+        keepalive: true
+      }).catch(function() {});
     }
   }
 
