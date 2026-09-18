@@ -26,6 +26,12 @@ class DHC_Heartbeat {
     /** Custom cron interval name */
     const INTERVAL_NAME = 'dhc_five_minutes';
 
+    /** Telemetry-token provisioning hook and retry state. */
+    const TELEMETRY_PROVISION_HOOK = 'dhc_provision_telemetry_token';
+    const TELEMETRY_RETRY_OPTION = 'dhc_telemetry_provision_retry';
+    const TELEMETRY_RETRY_BASE_SECONDS = 300;
+    const TELEMETRY_RETRY_MAX_SECONDS = 86400;
+
     /**
      * Initialize the heartbeat system
      */
@@ -84,6 +90,11 @@ class DHC_Heartbeat {
      * - active_modules (array of module keys with last activity timestamps)
      */
     public function send_heartbeat() {
+        // The heartbeat is our proven recurring scheduler. If an upgrade-time
+        // telemetry provisioning request was lost or failed, self-heal it at a
+        // bounded cadence without blocking this heartbeat.
+        self::ensure_telemetry_token_scheduled();
+
         $api_key = get_option( 'dhc_api_key', '' );
         if ( empty( $api_key ) ) {
             return;
@@ -188,6 +199,7 @@ class DHC_Heartbeat {
         // Skip if a token is already stored — no need to re-provision.
         $existing = get_option( 'dhc_telemetry_token', '' );
         if ( ! empty( $existing ) ) {
+            delete_option( self::TELEMETRY_RETRY_OPTION );
             return true;
         }
 
@@ -205,6 +217,7 @@ class DHC_Heartbeat {
         ) );
 
         if ( is_wp_error( $response ) ) {
+            self::schedule_telemetry_retry();
             return false;
         }
 
@@ -213,9 +226,61 @@ class DHC_Heartbeat {
 
         if ( 200 === $code && ! empty( $body['telemetry_token'] ) ) {
             update_option( 'dhc_telemetry_token', sanitize_text_field( $body['telemetry_token'] ) );
+            delete_option( self::TELEMETRY_RETRY_OPTION );
             return true;
         }
 
+        self::schedule_telemetry_retry();
         return false;
+    }
+
+    /**
+     * Schedule provisioning when a private key exists but no telemetry token
+     * has been stored. A persisted next-at timestamp prevents admin traffic and
+     * the five-minute heartbeat from creating a request storm.
+     *
+     * @param int $delay Initial delay in seconds.
+     * @return bool True when no work is needed or an event is already/successfully scheduled.
+     */
+    public static function ensure_telemetry_token_scheduled( $delay = 5 ) {
+        if ( empty( get_option( 'dhc_api_key', '' ) ) || ! empty( get_option( 'dhc_telemetry_token', '' ) ) ) {
+            return true;
+        }
+
+        $retry = get_option( self::TELEMETRY_RETRY_OPTION, array() );
+        $next_at = is_array( $retry ) ? (int) ( $retry['next_at'] ?? 0 ) : 0;
+        if ( $next_at > time() || wp_next_scheduled( self::TELEMETRY_PROVISION_HOOK ) ) {
+            return true;
+        }
+
+        return false !== wp_schedule_single_event(
+            time() + max( 1, (int) $delay ),
+            self::TELEMETRY_PROVISION_HOOK
+        );
+    }
+
+    /**
+     * Retry failed provisioning with exponential backoff capped at one day.
+     * The attempt counter is capped as well, so it cannot overflow on a site
+     * that remains disconnected for a long period.
+     */
+    private static function schedule_telemetry_retry() {
+        $retry = get_option( self::TELEMETRY_RETRY_OPTION, array() );
+        $failures = is_array( $retry ) ? (int) ( $retry['failures'] ?? 0 ) : 0;
+        $failures = min( 9, $failures + 1 );
+        $delay = min(
+            self::TELEMETRY_RETRY_MAX_SECONDS,
+            self::TELEMETRY_RETRY_BASE_SECONDS * ( 2 ** ( $failures - 1 ) )
+        );
+        $next_at = time() + $delay;
+
+        update_option( self::TELEMETRY_RETRY_OPTION, array(
+            'failures' => $failures,
+            'next_at'  => $next_at,
+        ), false );
+
+        if ( ! wp_next_scheduled( self::TELEMETRY_PROVISION_HOOK ) ) {
+            wp_schedule_single_event( $next_at, self::TELEMETRY_PROVISION_HOOK );
+        }
     }
 }

@@ -636,7 +636,9 @@ class DHC_Admin {
         // re-provisioned. The old token is bound to the previous key's scope.
         if ( $api_key !== $old_key ) {
             delete_option( 'dhc_telemetry_token' );
-            wp_schedule_single_event( time() + 5, 'dhc_provision_telemetry_token' );
+            delete_option( DHC_Heartbeat::TELEMETRY_RETRY_OPTION );
+            wp_clear_scheduled_hook( DHC_Heartbeat::TELEMETRY_PROVISION_HOOK );
+            DHC_Heartbeat::ensure_telemetry_token_scheduled();
         }
 
         wp_send_json_success( esc_html__( 'Settings saved.', 'dsquared-hub-connector' ) );
@@ -663,7 +665,9 @@ class DHC_Admin {
         // Clear stale telemetry token when the key is replaced.
         if ( $api_key !== $old_key ) {
             delete_option( 'dhc_telemetry_token' );
-            wp_schedule_single_event( time() + 5, 'dhc_provision_telemetry_token' );
+            delete_option( DHC_Heartbeat::TELEMETRY_RETRY_OPTION );
+            wp_clear_scheduled_hook( DHC_Heartbeat::TELEMETRY_PROVISION_HOOK );
+            DHC_Heartbeat::ensure_telemetry_token_scheduled();
         }
 
         $result = DHC_API_Key::validate( $api_key, true );

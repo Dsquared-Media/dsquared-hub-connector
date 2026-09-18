@@ -23,6 +23,11 @@ const eventTracker  = fs.readFileSync(path.join(root, 'includes/modules/class-dh
 const siteHealth    = fs.readFileSync(path.join(root, 'includes/modules/class-dhc-site-health.php'), 'utf8');
 const cwvJs         = fs.readFileSync(path.join(root, 'assets/dhc-site-health.js'), 'utf8');
 const pluginMain    = fs.readFileSync(path.join(root, 'dsquared-hub-connector.php'), 'utf8');
+const heartbeat     = fs.readFileSync(path.join(root, 'includes/class-dhc-heartbeat.php'), 'utf8');
+const admin         = fs.readFileSync(path.join(root, 'includes/class-dhc-admin.php'), 'utf8');
+const uninstall     = fs.readFileSync(path.join(root, 'uninstall.php'), 'utf8');
+const readme        = fs.readFileSync(path.join(root, 'readme.txt'), 'utf8');
+const changelog     = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
 
 // ---------------------------------------------------------------------------
 // Issue 5: Event Tracker — dhc_api_key must not appear in the beacon block
@@ -209,8 +214,8 @@ test('plugin: version-change block provisions dhc_telemetry_token for existing i
         'version-change block must reference dhc_telemetry_token provisioning'
     );
     assert.ok(
-        versionBody.includes('dhc_provision_telemetry_token'),
-        'version-change block must schedule dhc_provision_telemetry_token cron event'
+        versionBody.includes('DHC_Heartbeat::ensure_telemetry_token_scheduled()'),
+        'version-change block must invoke the self-healing telemetry provision scheduler'
     );
 });
 
@@ -243,4 +248,57 @@ test('plugin: DHC_VERSION constant and header comment agree', () => {
         defineMatch[1],
         `Header version (${headerMatch?.[1]}) must match DHC_VERSION constant (${defineMatch?.[1]})`
     );
+});
+
+test('plugin: WordPress stable tag and changelog agree with 1.17.4', () => {
+    assert.match(readme, /^Stable tag:\s*1\.17\.4$/m);
+    assert.match(readme, /^= 1\.17\.4 =$/m);
+    assert.match(changelog, /^## 1\.17\.4$/m);
+});
+
+// ---------------------------------------------------------------------------
+// Upgrade reliability: provisioning must recover from a missed/failed event
+// ---------------------------------------------------------------------------
+
+test('telemetry provisioning: heartbeat and admin traffic self-heal a missing token', () => {
+    const sendHeartbeat = heartbeat.slice(
+        heartbeat.indexOf('public function send_heartbeat()'),
+        heartbeat.indexOf('public static function get_hub_url()')
+    );
+    assert.match(sendHeartbeat, /self::ensure_telemetry_token_scheduled\(\)/);
+
+    const adminInit = pluginMain.slice(
+        pluginMain.indexOf("add_action( 'admin_init'"),
+        pluginMain.indexOf('// Auto-flush rewrite rules')
+    );
+    assert.match(adminInit, /DHC_Heartbeat::ensure_telemetry_token_scheduled\(\)/);
+});
+
+test('telemetry provisioning: failed requests use capped persistent backoff', () => {
+    assert.match(heartbeat, /const TELEMETRY_RETRY_BASE_SECONDS = 300/);
+    assert.match(heartbeat, /const TELEMETRY_RETRY_MAX_SECONDS = 86400/);
+    assert.match(heartbeat, /\$failures = min\( 9, \$failures \+ 1 \)/);
+    assert.match(heartbeat, /self::TELEMETRY_RETRY_MAX_SECONDS,[\s\S]*self::TELEMETRY_RETRY_BASE_SECONDS/);
+
+    const provision = heartbeat.slice(heartbeat.indexOf('public static function maybe_provision_telemetry_token()'));
+    const failureSchedules = provision.match(/self::schedule_telemetry_retry\(\)/g) || [];
+    assert.equal(failureSchedules.length, 2, 'transport and non-success responses must both schedule a retry');
+});
+
+test('telemetry provisioning: key rotation clears stale token, retry state, and pending event', () => {
+    const rotationBlocks = admin.match(/if \( \$api_key !== \$old_key \) \{[\s\S]*?\n\s*\}/g) || [];
+    assert.equal(rotationBlocks.length, 2, 'both settings-save paths must handle key rotation');
+    for (const block of rotationBlocks) {
+        assert.match(block, /delete_option\( 'dhc_telemetry_token' \)/);
+        assert.match(block, /delete_option\( DHC_Heartbeat::TELEMETRY_RETRY_OPTION \)/);
+        assert.match(block, /wp_clear_scheduled_hook\( DHC_Heartbeat::TELEMETRY_PROVISION_HOOK \)/);
+        assert.match(block, /DHC_Heartbeat::ensure_telemetry_token_scheduled\(\)/);
+    }
+});
+
+test('plugin uninstall removes telemetry credential, retry state, and all pending retries', () => {
+    assert.match(uninstall, /'dhc_telemetry_token'/);
+    assert.match(uninstall, /'dhc_telemetry_provision_retry'/);
+    assert.match(uninstall, /'dhc_provision_telemetry_token'/);
+    assert.match(uninstall, /wp_clear_scheduled_hook\( \$hook \)/);
 });

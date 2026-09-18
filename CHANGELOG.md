@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.17.4
+
+- Replaced the privileged connector key in public Event Tracker and Core Web Vitals browser configuration with a narrow Hub-issued telemetry token.
+- Moved browser telemetry authentication from URL query parameters to the `X-DHC-API-Key` header.
+- Added automatic provisioning for existing installations, plus bounded exponential retry and heartbeat/admin self-healing when the Hub or WP-Cron is temporarily unavailable.
+- Clear telemetry credentials, retry state, and provisioning schedules when the plugin is removed.
+- Added security and upgrade contract coverage for the two-token model.
+
+## 1.17.3
+
+- Expanded generated `llms.txt` output to include the full saved business profile.
+
+## 1.17.2
+
+- Fixed UTF-8 mojibake in generated AI discovery files.
+
+## 1.17.1
+
+- Preserved curated raw `llms.txt` content instead of overwriting it during automatic regeneration.
+
 ## 1.16.0
 
 - Large-site connector scans can cover up to 500 pages in one audit. Successful and idempotent chunk receipts rotate the website/job/connector/nonce-bound claim and renew its one-hour idle lease, while a four-hour absolute duration guard prevents runaway jobs.
