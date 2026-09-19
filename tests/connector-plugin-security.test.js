@@ -220,20 +220,20 @@ test('plugin: version-change block provisions dhc_telemetry_token for existing i
 });
 
 // ---------------------------------------------------------------------------
-// Package readiness: DHC_VERSION is 1.17.5
+// Package readiness: DHC_VERSION is 1.17.6
 // ---------------------------------------------------------------------------
 
-test('plugin: DHC_VERSION constant is 1.17.5', () => {
+test('plugin: DHC_VERSION constant is 1.17.6', () => {
     assert.ok(
-        pluginMain.includes("define( 'DHC_VERSION', '1.17.5' )"),
-        "DHC_VERSION must be '1.17.5'"
+        pluginMain.includes("define( 'DHC_VERSION', '1.17.6' )"),
+        "DHC_VERSION must be '1.17.6'"
     );
 });
 
-test('plugin: file header Version comment is 1.17.5', () => {
+test('plugin: file header Version comment is 1.17.6', () => {
     assert.ok(
-        pluginMain.includes('* Version:           1.17.5'),
-        'Plugin file header comment must declare Version: 1.17.5'
+        pluginMain.includes('* Version:           1.17.6'),
+        'Plugin file header comment must declare Version: 1.17.6'
     );
 });
 
@@ -250,10 +250,10 @@ test('plugin: DHC_VERSION constant and header comment agree', () => {
     );
 });
 
-test('plugin: WordPress stable tag and changelog agree with 1.17.5', () => {
-    assert.match(readme, /^Stable tag:\s*1\.17\.5$/m);
-    assert.match(readme, /^= 1\.17\.5 =$/m);
-    assert.match(changelog, /^## 1\.17\.5$/m);
+test('plugin: WordPress stable tag and changelog agree with 1.17.6', () => {
+    assert.match(readme, /^Stable tag:\s*1\.17\.6$/m);
+    assert.match(readme, /^= 1\.17\.6 =$/m);
+    assert.match(changelog, /^## 1\.17\.6$/m);
 });
 
 // ---------------------------------------------------------------------------

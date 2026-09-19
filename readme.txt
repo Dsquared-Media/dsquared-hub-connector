@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.17.5
+Stable tag: 1.17.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,9 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.17.6 =
+* Safely removes verified inactive version-suffixed connector copies left by older manual ZIP installs without running their uninstall routines or erasing shared settings.
 
 = 1.17.5 =
 * Updates: WordPress's "Check again" action now clears the connector's release cache so newly published versions appear immediately.
