@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.17.8
+
+- Continue active Hub audit crawls in bounded background batches instead of waiting five minutes between every 20 pages.
+- Retain the regular five-minute crawler poll as the recovery path when a host cannot launch the immediate continuation.
+
 ## 1.17.7
 
 - Restored distinct AI Discovery files: `llms.txt` now serves the concise business summary with a link to `llms-full.txt`, while `llms-full.txt` contains the expanded profile, key pages, and recent articles.

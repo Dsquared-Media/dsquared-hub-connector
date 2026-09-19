@@ -79,6 +79,9 @@ class DHC_Crawler {
 	/** Cron hook name */
 	const CRON_HOOK = 'dhc_crawler_poll';
 
+	/** One-shot hook used to continue an active crawl without a five-minute gap. */
+	const CONTINUE_HOOK = 'dhc_crawler_continue';
+
 	/** Reuse the heartbeat's five-minute schedule */
 	const INTERVAL_NAME = 'dhc_five_minutes';
 
@@ -139,6 +142,9 @@ class DHC_Crawler {
 	/** @var self|null */
 	private static $instance = null;
 
+	/** @var bool Prevent duplicate shutdown continuations in one PHP request. */
+	private $continuation_scheduled = false;
+
 	public static function init() {
 		if ( null === self::$instance ) {
 			self::$instance = new self();
@@ -150,6 +156,7 @@ class DHC_Crawler {
 		add_filter( 'cron_schedules', array( $this, 'add_cron_interval' ) );
 		add_action( 'init',           array( $this, 'schedule_poll' ) );
 		add_action( self::CRON_HOOK,  array( $this, 'run_poll_tick' ) );
+		add_action( self::CONTINUE_HOOK, array( $this, 'run_poll_tick' ) );
 		// Heartbeats are already proven to run on connected sites. Use that
 		// authoritative five-minute event as a fallback so a missing/stale
 		// crawler-specific cron row cannot strand Hub scans in queued forever.
@@ -236,9 +243,45 @@ class DHC_Crawler {
 			wp_unschedule_event( $ts, self::CRON_HOOK );
 		}
 		wp_clear_scheduled_hook( self::CRON_HOOK );
+		wp_clear_scheduled_hook( self::CONTINUE_HOOK );
 		delete_option( self::STATE_KEY );
 		delete_option( self::DIAGNOSTICS_KEY );
 		delete_transient( self::LOCK_TRANSIENT );
+	}
+
+	/**
+	 * Queue the next bounded crawl batch immediately after this cron request.
+	 *
+	 * The regular five-minute poll remains the recovery path if loopback cron
+	 * spawning is disabled by the host. Scheduling the event before shutdown
+	 * makes the work durable; spawning at shutdown avoids WordPress's current
+	 * cron lock and keeps the browser/request that triggered this tick fast.
+	 */
+	private function schedule_continuation() {
+		if ( $this->continuation_scheduled ) {
+			return;
+		}
+
+		if ( ! wp_next_scheduled( self::CONTINUE_HOOK ) ) {
+			$scheduled = wp_schedule_single_event( time(), self::CONTINUE_HOOK, array(), true );
+			if ( is_wp_error( $scheduled ) ) {
+				$this->record_diagnostic( 'continuation_schedule_failed', array(
+					'error_code' => sanitize_key( $scheduled->get_error_code() ),
+				) );
+				return;
+			}
+		}
+
+		$this->continuation_scheduled = true;
+		register_shutdown_function( function() {
+			// The cadence lock intentionally covers the whole current request. It
+			// is released only here, after WordPress has finished this cron batch,
+			// so the heartbeat and regular crawler hook cannot overlap it.
+			delete_transient( self::LOCK_TRANSIENT );
+			if ( function_exists( 'spawn_cron' ) ) {
+				spawn_cron( time() );
+			}
+		} );
 	}
 
 	// ── Main cron tick ───────────────────────────────────────────────────────────
@@ -548,6 +591,7 @@ class DHC_Crawler {
 			$this->record_diagnostic( 'crawl_in_progress', array(
 				'job_id' => sanitize_text_field( $job_id ),
 			) );
+			$this->schedule_continuation();
 		}
 	}
 
