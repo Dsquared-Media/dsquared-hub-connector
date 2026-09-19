@@ -17,10 +17,10 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 class DHC_Updater {
 
     /** @var string GitHub repository in owner/repo format */
-    const GITHUB_REPO = 'dsquaredmedia/dsquared-hub-connector';
+    const GITHUB_REPO = 'Dsquared-Media/dsquared-hub-connector';
 
     /** @var string GitHub API endpoint for latest release */
-    const GITHUB_API_URL = 'https://api.github.com/repos/dsquaredmedia/dsquared-hub-connector/releases/latest';
+    const GITHUB_API_URL = 'https://api.github.com/repos/Dsquared-Media/dsquared-hub-connector/releases/latest';
 
     /** @var string Fallback: Hub endpoint for update checks */
     const HUB_UPDATE_URL = 'https://hub.dsquaredmedia.net/api/plugin/update-check';
@@ -63,6 +63,25 @@ class DHC_Updater {
 
         // Also hook into the upload process itself
         add_filter( 'wp_handle_upload_prefilter', array( __CLASS__, 'protect_plugin_upload' ), 1 );
+
+        // WordPress's "Check again" action clears its own update cache, but
+        // it does not know about our separate release-data transient. Clear
+        // that transient before Core runs the forced plugin check so a newly
+        // published release appears immediately instead of remaining hidden
+        // behind a stale six-hour result.
+        add_action( 'load-update-core.php', array( __CLASS__, 'clear_cache_on_forced_check' ), 1 );
+    }
+
+    /**
+     * Clear cached release data when an authorized administrator forces a
+     * WordPress update check.
+     */
+    public static function clear_cache_on_forced_check() {
+        if ( ! current_user_can( 'update_plugins' ) || empty( $_GET['force-check'] ) ) {
+            return;
+        }
+
+        delete_transient( self::CACHE_KEY );
     }
 
     /**
@@ -483,7 +502,7 @@ class DHC_Updater {
      */
     public static function plugin_row_meta( $links, $file ) {
         if ( DHC_PLUGIN_BASENAME === $file ) {
-            $links[] = '<a href="' . esc_url( admin_url( 'update-core.php' ) ) . '">' .
+            $links[] = '<a href="' . esc_url( admin_url( 'update-core.php?force-check=1' ) ) . '">' .
                        esc_html__( 'Check for updates', 'dsquared-hub-connector' ) . '</a>';
         }
         return $links;

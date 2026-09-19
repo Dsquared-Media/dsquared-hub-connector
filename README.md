@@ -121,7 +121,7 @@ The Form Capture module includes a multi-layer spam filter that runs before any 
 
 ## Auto-Updates
 
-The plugin includes a self-hosted auto-updater that checks `hub.dsquaredmedia.net` for new versions. Updates appear in the WordPress admin just like any other plugin. The update check is cached for 12 hours and requires a valid API key.
+The plugin includes a self-hosted auto-updater that checks GitHub releases first and falls back to `hub.dsquaredmedia.net`. Updates appear in the WordPress admin just like any other plugin. Release data is cached for six hours during normal checks and refreshed immediately when an administrator chooses **Check again**.
 
 ---
 

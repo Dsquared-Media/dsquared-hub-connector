@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.17.5
+
+- Clear the connector's cached release data before WordPress performs an administrator-requested forced update check.
+- Point release discovery at the canonical GitHub repository path and make the plugin-row update link trigger a true forced refresh.
+
 ## 1.17.4
 
 - Replaced the privileged connector key in public Event Tracker and Core Web Vitals browser configuration with a narrow Hub-issued telemetry token.

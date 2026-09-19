@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.17.4
+Stable tag: 1.17.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,10 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.17.5 =
+* Updates: WordPress's "Check again" action now clears the connector's release cache so newly published versions appear immediately.
+* Reliability: Update checks use the repository's canonical GitHub owner path and the plugin-row link now performs a true forced refresh.
 
 = 1.17.4 =
 * Security: Public event and Core Web Vitals scripts now use a narrow telemetry token instead of the private connector key.
