@@ -67,6 +67,24 @@ test('crawler respects quoted greater-than characters before JSON-LD type', () =
   }
 });
 
+test('crawler reads only the actual type attribute, never type text inside another value', () => {
+  for (const body of [
+    '{"@type":"Fake"}',
+    'this is ordinary JavaScript and is not JSON'
+  ]) {
+    for (const tag of [
+      `<script data-note="type=application/ld+json">${body}</script>`,
+      `<script data-type='application/ld+json'>${body}</script>`,
+      `<script aria-label="type = application/ld+json">${body}</script>`
+    ]) {
+      const result = extract(tag);
+      assert.equal(result.status, 'measured');
+      assert.equal(result.present, false);
+      assert.equal(result.scriptCount, 0);
+    }
+  }
+});
+
 test('crawler ignores comment and attribute text that only looks like JSON-LD', () => {
   const result = extract([
     '<!-- <script type=application/ld+json>{"@type":"CommentFake"}</script> -->',
@@ -107,6 +125,17 @@ test('crawler leaves ambiguous or unterminated JSON-LD unmeasured', () => {
   assert.equal(incompleteOpen.status, 'extraction_failed');
   assert.equal(incompleteOpen.present, null);
   assert.equal(incompleteOpen.reason, 'unterminated_script_tag');
+
+  for (const malformedTag of [
+    '<script type application/ld+json>{"@type":"Organization"}</script>',
+    '<script type=>{"@type":"Organization"}</script>',
+    '<script type="text/javascript" type=application/ld+json>{"@type":"Organization"}</script>'
+  ]) {
+    const malformed = extract(malformedTag);
+    assert.equal(malformed.status, 'extraction_failed');
+    assert.equal(malformed.present, null);
+    assert.equal(malformed.reason, 'ambiguous_script_type');
+  }
 });
 
 test('crawler does not treat script text containing a fake script tag as JSON-LD', () => {

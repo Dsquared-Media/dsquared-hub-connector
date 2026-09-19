@@ -1082,16 +1082,15 @@ class DHC_Crawler {
 			$body_start = $tag_end + 1;
 			$close_start = stripos( $html, '</script', $body_start );
 			$close_end   = false === $close_start ? false : strpos( $html, '>', $close_start );
-			$type_value = null;
-			if ( preg_match( '/\btype\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s"\'=<>]+))/i', $attrs, $tm ) ) {
-				$type_value = isset( $tm[1] ) && '' !== $tm[1] ? $tm[1] : ( isset( $tm[2] ) && '' !== $tm[2] ? $tm[2] : ( $tm[3] ?? '' ) );
+			$type_attr = $this->parse_script_type_attribute( $attrs );
+			if ( $type_attr['malformed'] ) {
+				return $this->schema_extraction_failed( 'ambiguous_script_type', $script_count );
 			}
+			$type_value = $type_attr['found'] ? $type_attr['value'] : null;
 			$looks_jsonld = false;
 			if ( null !== $type_value ) {
 				$mime = strtolower( trim( explode( ';', html_entity_decode( $type_value, ENT_QUOTES | ENT_HTML5, 'UTF-8' ), 2 )[0] ) );
 				$looks_jsonld = 'application/ld+json' === $mime;
-			} elseif ( false !== stripos( $attrs, 'ld+json' ) ) {
-				return $this->schema_extraction_failed( 'ambiguous_script_type', $script_count );
 			}
 			if ( false === $close_start || false === $close_end ) {
 				if ( $looks_jsonld ) return $this->schema_extraction_failed( 'unterminated_jsonld', $script_count + 1 );
@@ -1137,6 +1136,59 @@ class DHC_Crawler {
 			'provenance'  => 'connector_html',
 			'scriptCount' => min( 20, $script_count ),
 		);
+	}
+
+	/**
+	 * Parse only real attributes from an already bounded, quote-aware opening
+	 * tag. Text such as data-note="type=application/ld+json" is a value of a
+	 * different attribute and must never be promoted to the script MIME type.
+	 */
+	private function parse_script_type_attribute( $attrs ) {
+		$length = strlen( $attrs );
+		$offset = 0;
+		$found = false;
+		$value = null;
+		$malformed = false;
+		while ( $offset < $length ) {
+			while ( $offset < $length && ( ctype_space( $attrs[ $offset ] ) || '/' === $attrs[ $offset ] ) ) $offset++;
+			if ( $offset >= $length ) break;
+			$name_start = $offset;
+			while ( $offset < $length && preg_match( '/[A-Za-z0-9_:-]/', $attrs[ $offset ] ) ) $offset++;
+			if ( $offset === $name_start ) {
+				$offset++;
+				continue;
+			}
+			$name = strtolower( substr( $attrs, $name_start, $offset - $name_start ) );
+			while ( $offset < $length && ctype_space( $attrs[ $offset ] ) ) $offset++;
+			if ( $offset >= $length || '=' !== $attrs[ $offset ] ) {
+				if ( 'type' === $name ) $malformed = true;
+				continue;
+			}
+			$offset++;
+			while ( $offset < $length && ctype_space( $attrs[ $offset ] ) ) $offset++;
+			$attr_value = '';
+			if ( $offset < $length && ( '"' === $attrs[ $offset ] || "'" === $attrs[ $offset ] ) ) {
+				$quote = $attrs[ $offset++ ];
+				$value_start = $offset;
+				while ( $offset < $length && $attrs[ $offset ] !== $quote ) $offset++;
+				if ( $offset >= $length ) {
+					if ( 'type' === $name ) $malformed = true;
+					break;
+				}
+				$attr_value = substr( $attrs, $value_start, $offset - $value_start );
+				$offset++;
+			} else {
+				$value_start = $offset;
+				while ( $offset < $length && ! ctype_space( $attrs[ $offset ] ) ) $offset++;
+				$attr_value = substr( $attrs, $value_start, $offset - $value_start );
+			}
+			if ( 'type' === $name ) {
+				if ( $found || '' === trim( $attr_value ) ) $malformed = true;
+				$found = true;
+				$value = $attr_value;
+			}
+		}
+		return array( 'found' => $found, 'value' => $value, 'malformed' => $malformed );
 	}
 
 	private function schema_extraction_failed( $reason, $script_count ) {
