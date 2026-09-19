@@ -70,6 +70,132 @@ class DHC_Updater {
         // published release appears immediately instead of remaining hidden
         // behind a stale six-hour result.
         add_action( 'load-update-core.php', array( __CLASS__, 'clear_cache_on_forced_check' ), 1 );
+
+        // Manual ZIP installs used to leave a version-suffixed, inactive copy
+        // beside the canonical plugin directory. Remove only verified,
+        // inactive legacy copies and bypass uninstall.php so the shared
+        // connector settings and credentials remain intact.
+        add_action( 'admin_init', array( __CLASS__, 'cleanup_legacy_copies' ), 20 );
+    }
+
+    /**
+     * Remove verified inactive copies left behind by older ZIP installs.
+     *
+     * This deliberately does not invoke a candidate plugin's uninstall.php:
+     * both copies use the same options, and the old uninstaller would erase
+     * the active canonical connector's settings. Cleanup only runs for an
+     * administrator while the canonical plugin path is active, only considers
+     * strict version-suffixed directory names, verifies the plugin header, and
+     * skips any active copy.
+     *
+     * @return array Cleanup result for diagnostics and tests.
+     */
+    public static function cleanup_legacy_copies() {
+        $result = array(
+            'removed' => array(),
+            'skipped' => array(),
+            'error'   => '',
+        );
+
+        if ( ! defined( 'DHC_PLUGIN_BASENAME' ) ||
+            'dsquared-hub-connector/dsquared-hub-connector.php' !== DHC_PLUGIN_BASENAME ) {
+            $result['error'] = 'canonical-plugin-not-active';
+            return $result;
+        }
+
+        if ( ! current_user_can( 'update_plugins' ) ) {
+            $result['error'] = 'insufficient-permissions';
+            return $result;
+        }
+
+        if ( get_option( 'dhc_legacy_cleanup_version', '' ) === DHC_VERSION ) {
+            return $result;
+        }
+
+        if ( ! defined( 'WP_PLUGIN_DIR' ) || ! is_dir( WP_PLUGIN_DIR ) ) {
+            $result['error'] = 'plugin-directory-unavailable';
+            return $result;
+        }
+
+        if ( ! function_exists( 'is_plugin_active' ) ) {
+            $plugin_functions = ABSPATH . 'wp-admin/includes/plugin.php';
+            if ( is_readable( $plugin_functions ) ) {
+                require_once $plugin_functions;
+            }
+        }
+
+        $candidates = glob( trailingslashit( WP_PLUGIN_DIR ) . 'dsquared-hub-connector-*', GLOB_ONLYDIR );
+        if ( false === $candidates ) {
+            $candidates = array();
+        }
+
+        $verified = array();
+        foreach ( $candidates as $candidate ) {
+            $folder = basename( untrailingslashit( $candidate ) );
+            if ( ! preg_match( '/^dsquared-hub-connector-\d+(?:\.\d+){1,3}$/', $folder ) ) {
+                $result['skipped'][] = $folder;
+                continue;
+            }
+
+            $main_file = trailingslashit( $candidate ) . 'dsquared-hub-connector.php';
+            if ( ! is_readable( $main_file ) ) {
+                $result['skipped'][] = $folder;
+                continue;
+            }
+
+            $headers = get_file_data( $main_file, array( 'name' => 'Plugin Name' ), 'plugin' );
+            if ( 'Dsquared Hub Connector' !== trim( $headers['name'] ?? '' ) ) {
+                $result['skipped'][] = $folder;
+                continue;
+            }
+
+            $plugin_basename = $folder . '/dsquared-hub-connector.php';
+            $is_active = function_exists( 'is_plugin_active' ) && is_plugin_active( $plugin_basename );
+            $is_network_active = function_exists( 'is_plugin_active_for_network' ) && is_plugin_active_for_network( $plugin_basename );
+            if ( $is_active || $is_network_active ) {
+                $result['skipped'][] = $folder;
+                continue;
+            }
+
+            $verified[] = array( 'path' => $candidate, 'folder' => $folder );
+        }
+
+        if ( ! empty( $verified ) ) {
+            global $wp_filesystem;
+            if ( ! $wp_filesystem ) {
+                if ( ! function_exists( 'WP_Filesystem' ) ) {
+                    $filesystem_functions = ABSPATH . 'wp-admin/includes/file.php';
+                    if ( is_readable( $filesystem_functions ) ) {
+                        require_once $filesystem_functions;
+                    }
+                }
+                if ( function_exists( 'WP_Filesystem' ) ) {
+                    WP_Filesystem();
+                }
+            }
+
+            if ( ! $wp_filesystem || ! method_exists( $wp_filesystem, 'delete' ) ) {
+                $result['error'] = 'filesystem-unavailable';
+                update_option( 'dhc_legacy_cleanup_result', $result, false );
+                return $result;
+            }
+
+            foreach ( $verified as $candidate ) {
+                if ( $wp_filesystem->delete( $candidate['path'], true, 'd' ) ) {
+                    $result['removed'][] = $candidate['folder'];
+                } else {
+                    $result['skipped'][] = $candidate['folder'];
+                    $result['error'] = 'delete-failed';
+                }
+            }
+        }
+
+        update_option( 'dhc_legacy_cleanup_result', $result, false );
+        if ( empty( $result['error'] ) ) {
+            update_option( 'dhc_legacy_cleanup_version', DHC_VERSION, false );
+        }
+
+        return $result;
     }
 
     /**

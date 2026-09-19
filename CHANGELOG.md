@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.6
+
+- Safely removes verified inactive version-suffixed connector copies left by older manual ZIP installs. Cleanup is limited to exact connector folders, skips active copies, and bypasses the old uninstall routine so the live connector's shared settings remain intact.
+
 ## 1.17.5
 
 - Clear the connector's cached release data before WordPress performs an administrator-requested forced update check.
