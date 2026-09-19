@@ -37,4 +37,51 @@ test('crawler distinguishes measured absence from failed extraction', () => {
   const failed = extract('<html><body><script type="application/ld+json">{"@type":</script></body></html>');
   assert.equal(failed.status, 'extraction_failed');
   assert.equal(failed.present, null);
+  assert.equal(failed.reason, 'json_parse_error');
+});
+
+test('crawler recognizes legal JSON-LD type attribute forms', () => {
+  for (const tag of [
+    '<script type=application/ld+json>{"@type":"Organization"}</script>',
+    '<SCRIPT data-x="1" TYPE = "APPLICATION/LD+JSON">{"@type":"LocalBusiness"}</SCRIPT>',
+    "<script nonce='abc' type='application/ld+json; charset=utf-8'>{\"@type\":\"WebSite\"}</script>"
+  ]) {
+    const result = extract(tag);
+    assert.equal(result.status, 'measured');
+    assert.equal(result.present, true);
+    assert.equal(result.scriptCount, 1);
+    assert.equal(result.types.length, 1);
+  }
+});
+
+test('crawler fails closed when JSON-LD exceeds its bounded inspection envelope', () => {
+  const twenty = Array.from({ length: 20 }, (_, i) =>
+    `<script type="application/ld+json">${JSON.stringify({ '@type': `Type${i}` })}</script>`
+  ).join('');
+  const overLimit = extract(twenty + '<script type=application/ld+json>{"@type":</script>');
+  assert.equal(overLimit.status, 'extraction_failed');
+  assert.equal(overLimit.present, null);
+  assert.equal(overLimit.reason, 'script_limit_exceeded');
+  assert.equal(overLimit.scriptCount, 20);
+
+  const oversized = extract(`<script type=application/ld+json>${' '.repeat(262145)}</script>`);
+  assert.equal(oversized.status, 'extraction_failed');
+  assert.equal(oversized.reason, 'script_size_limit_exceeded');
+  assert.equal(JSON.stringify(oversized).length < 500, true);
+});
+
+test('crawler leaves ambiguous or unterminated JSON-LD unmeasured', () => {
+  const ambiguous = extract('<script type application/ld+json>{"@type":"Organization"}</script>');
+  assert.equal(ambiguous.status, 'extraction_failed');
+  assert.equal(ambiguous.reason, 'ambiguous_script_type');
+  const unterminated = extract('<script type=application/ld+json>{"@type":"Organization"}');
+  assert.equal(unterminated.status, 'extraction_failed');
+  assert.equal(unterminated.reason, 'unterminated_jsonld');
+});
+
+test('crawler does not treat script text containing a fake script tag as JSON-LD', () => {
+  const result = extract('<script>const example = `<script type=application/ld+json>{"@type":"Fake"}</script>`;</script>');
+  assert.equal(result.status, 'measured');
+  assert.equal(result.present, false);
+  assert.equal(result.scriptCount, 0);
 });

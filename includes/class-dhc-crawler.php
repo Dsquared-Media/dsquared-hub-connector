@@ -997,20 +997,67 @@ class DHC_Crawler {
 	 * partial parse can never be presented as a clean, complete measurement.
 	 */
 	private function extract_schema_evidence( $html ) {
-		$types        = array();
-		$script_count = 0;
-		$parse_failed = false;
+		$types            = array();
+		$script_count     = 0;
+		$offset           = 0;
+		$inspected_bytes  = 0;
+		$max_html_bytes   = 2000000;
+		$max_script_bytes = 262144;
+		$max_total_bytes  = 524288;
+		$failure_reason   = '';
 
-		preg_match_all( '/<script[^>]+type=["\']application\/ld\+json(?:;[^"\']*)?["\'][^>]*>(.*?)<\/script>/si', $html, $scripts );
-		foreach ( array_slice( $scripts[1] ?? array(), 0, 20 ) as $body ) {
+		// Fail closed before tokenizing an unexpectedly large document. The crawl
+		// can still persist the page's ordinary SEO fields, but Schema remains
+		// explicitly unmeasured instead of risking an unbounded parse.
+		if ( strlen( $html ) > $max_html_bytes ) {
+			return $this->schema_extraction_failed( 'input_limit_exceeded', 0 );
+		}
+
+		// Walk script tags incrementally. This accepts legal quoted or unquoted
+		// type attributes, mixed case, attribute reordering and whitespace without
+		// retaining script bodies. Finding a 21st JSON-LD block makes the whole
+		// measurement unknown because extraction is intentionally capped at 20.
+		while ( preg_match( '/<script\b([^>]*)>/i', $html, $open, PREG_OFFSET_CAPTURE, $offset ) ) {
+			$attrs      = (string) $open[1][0];
+			$open_start = (int) $open[0][1];
+			$body_start = $open_start + strlen( $open[0][0] );
+			$close_start = stripos( $html, '</script', $body_start );
+			$close_end   = false === $close_start ? false : strpos( $html, '>', $close_start );
+			$type_value = null;
+			if ( preg_match( '/\btype\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s"\'=<>]+))/i', $attrs, $tm ) ) {
+				$type_value = isset( $tm[1] ) && '' !== $tm[1] ? $tm[1] : ( isset( $tm[2] ) && '' !== $tm[2] ? $tm[2] : ( $tm[3] ?? '' ) );
+			}
+			$looks_jsonld = false;
+			if ( null !== $type_value ) {
+				$mime = strtolower( trim( explode( ';', html_entity_decode( $type_value, ENT_QUOTES | ENT_HTML5, 'UTF-8' ), 2 )[0] ) );
+				$looks_jsonld = 'application/ld+json' === $mime;
+			} elseif ( false !== stripos( $attrs, 'ld+json' ) ) {
+				return $this->schema_extraction_failed( 'ambiguous_script_type', $script_count );
+			}
+			if ( false === $close_start || false === $close_end ) {
+				if ( $looks_jsonld ) return $this->schema_extraction_failed( 'unterminated_jsonld', $script_count + 1 );
+				break;
+			}
+			$offset = $close_end + 1;
+			if ( ! $looks_jsonld ) continue;
+
 			$script_count++;
+			if ( $script_count > 20 ) return $this->schema_extraction_failed( 'script_limit_exceeded', 20 );
+			$body_length = $close_start - $body_start;
+			if ( $body_length > $max_script_bytes || $inspected_bytes + $body_length > $max_total_bytes ) {
+				return $this->schema_extraction_failed( 'script_size_limit_exceeded', $script_count );
+			}
+			$inspected_bytes += $body_length;
+			$body = substr( $html, $body_start, $body_length );
 			$decoded = json_decode( html_entity_decode( trim( $body ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ), true );
 			if ( JSON_ERROR_NONE !== json_last_error() ) {
-				$parse_failed = true;
-				continue;
+				$failure_reason = 'json_parse_error';
+				break;
 			}
 			$this->collect_schema_types( $decoded, $types );
 		}
+
+		if ( $failure_reason ) return $this->schema_extraction_failed( $failure_reason, $script_count );
 
 		// Microdata is presence/type evidence too. itemtype URLs are reduced to
 		// their final fragment/path component and subjected to the same cap.
@@ -1025,11 +1072,24 @@ class DHC_Crawler {
 		$present = $script_count > 0 || ! empty( $microdata[1] );
 		return array(
 			'version'     => 1,
-			'status'      => $parse_failed ? 'extraction_failed' : 'measured',
-			'present'     => $parse_failed ? null : $present,
+			'status'      => 'measured',
+			'present'     => $present,
 			'types'       => array_values( array_slice( $types, 0, 20 ) ),
 			'provenance'  => 'connector_html',
 			'scriptCount' => min( 20, $script_count ),
+		);
+	}
+
+	private function schema_extraction_failed( $reason, $script_count ) {
+		$allowed = array( 'input_limit_exceeded', 'script_limit_exceeded', 'script_size_limit_exceeded', 'unterminated_jsonld', 'ambiguous_script_type', 'json_parse_error' );
+		return array(
+			'version'     => 1,
+			'status'      => 'extraction_failed',
+			'present'     => null,
+			'types'       => array(),
+			'provenance'  => 'connector_html',
+			'scriptCount' => max( 0, min( 20, (int) $script_count ) ),
+			'reason'      => in_array( $reason, $allowed, true ) ? $reason : 'extraction_failed',
 		);
 	}
 
