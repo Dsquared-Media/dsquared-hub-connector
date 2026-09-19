@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.7
+
+- Restored distinct AI Discovery files: `llms.txt` now serves the concise business summary with a link to `llms-full.txt`, while `llms-full.txt` contains the expanded profile, key pages, and recent articles.
+
 ## 1.17.6
 
 - Safely removes verified inactive version-suffixed connector copies left by older manual ZIP installs. Cleanup is limited to exact connector folders, skips active copies, and bypasses the old uninstall routine so the live connector's shared settings remain intact.

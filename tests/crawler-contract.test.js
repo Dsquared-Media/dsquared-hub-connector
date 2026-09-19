@@ -58,9 +58,9 @@ test('the proven heartbeat cron also drives one crawler tick per cadence window'
 
 test('release metadata identifies the renewable large-site crawler version', () => {
   const readme = fs.readFileSync(path.join(root, 'readme.txt'), 'utf8');
-  assert.match(plugin, /Version:\s+1\.17\.6/);
-  assert.match(plugin, /define\( 'DHC_VERSION', '1\.17\.6' \)/);
-  assert.match(readme, /Stable tag:\s+1\.17\.6/);
+  assert.match(plugin, /Version:\s+1\.17\.7/);
+  assert.match(plugin, /define\( 'DHC_VERSION', '1\.17\.7' \)/);
+  assert.match(readme, /Stable tag:\s+1\.17\.7/);
 });
 
 test('crawler stores bounded diagnostics without response bodies or credentials', () => {
