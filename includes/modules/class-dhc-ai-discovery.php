@@ -105,18 +105,18 @@ class DHC_AI_Discovery {
             return new WP_Error( 'empty_profile', 'No business profile to write.' );
         }
 
-        // llms.txt and llms-full.txt both carry the full business profile content
-        // (Key Pages + Recent Articles) so AI crawlers that only fetch llms.txt
-        // still see the complete picture. Skip llms.txt only if a Hub-curated
-        // version is stored in dhc_llms_txt_raw — that raw content already has
-        // whatever the Hub operator chose to put there.
+        // Keep the discovery files intentionally distinct: llms.txt is the
+        // concise index and links to llms-full.txt, while llms-full.txt contains
+        // the expanded business profile, key pages, and recent articles. Skip
+        // llms.txt only if a Hub-curated version is stored in dhc_llms_txt_raw.
         $has_raw  = (bool) get_option( 'dhc_llms_txt_raw', '' );
+        $summary  = $this->generate_llms_summary( $profile );
         $full     = $this->generate_llms_full( $profile );
         $files = array(
             ABSPATH . 'llms-full.txt' => $full,
         );
         if ( ! $has_raw ) {
-            $files[ ABSPATH . 'llms.txt' ] = $full;
+            $files[ ABSPATH . 'llms.txt' ] = $summary;
         }
 
         foreach ( $files as $path => $content ) {
@@ -182,9 +182,9 @@ class DHC_AI_Discovery {
         header( 'Content-Type: text/plain; charset=utf-8' );
         header( 'X-Robots-Tag: noindex' );
         header( 'Cache-Control: public, max-age=3600' );
-        // Both llms.txt and llms-full.txt serve the full profile so AI crawlers
-        // that only fetch llms.txt still get Key Pages + Recent Articles.
-        echo $this->generate_llms_full( $profile );
+        echo $is_full
+            ? $this->generate_llms_full( $profile )
+            : $this->generate_llms_summary( $profile );
         exit;
     }
 

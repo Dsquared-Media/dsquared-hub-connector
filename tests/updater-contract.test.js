@@ -93,7 +93,7 @@ test('legacy cleanup removes only verified inactive versioned copies and preserv
     const php = `
         define('ABSPATH', ${JSON.stringify(tempRoot + path.sep)});
         define('WP_PLUGIN_DIR', ${JSON.stringify(pluginRoot)});
-        define('DHC_VERSION', '1.17.6');
+        define('DHC_VERSION', '1.17.7');
         define('DHC_PLUGIN_BASENAME', 'dsquared-hub-connector/dsquared-hub-connector.php');
         $GLOBALS['options'] = array('dhc_api_key' => 'must-stay', 'dhc_modules' => array('schema' => true));
         $GLOBALS['active_plugins'] = array('dsquared-hub-connector-1.17.2/dsquared-hub-connector.php');
@@ -146,7 +146,7 @@ test('legacy cleanup removes only verified inactive versioned copies and preserv
         assert.ok(result.remaining.includes('dsquared-hub-connector-1.17.0'));
         assert.equal(result.api_key, 'must-stay');
         assert.deepEqual(result.modules, { schema: true });
-        assert.equal(result.cleanup_version, '1.17.6');
+        assert.equal(result.cleanup_version, '1.17.7');
         assert.equal(result.admin_hook, 'cleanup_legacy_copies');
     } finally {
         fs.rmSync(tempRoot, { recursive: true, force: true });
