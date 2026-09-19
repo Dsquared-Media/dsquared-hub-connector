@@ -1013,14 +1013,73 @@ class DHC_Crawler {
 			return $this->schema_extraction_failed( 'input_limit_exceeded', 0 );
 		}
 
-		// Walk script tags incrementally. This accepts legal quoted or unquoted
-		// type attributes, mixed case, attribute reordering and whitespace without
-		// retaining script bodies. Finding a 21st JSON-LD block makes the whole
-		// measurement unknown because extraction is intentionally capped at 20.
-		while ( preg_match( '/<script\b([^>]*)>/i', $html, $open, PREG_OFFSET_CAPTURE, $offset ) ) {
-			$attrs      = (string) $open[1][0];
-			$open_start = (int) $open[0][1];
-			$body_start = $open_start + strlen( $open[0][0] );
+		// Tokenize opening tags with a bounded byte scanner. A regex ending at the
+		// first `>` is not HTML-aware: `data-note=">"` used to truncate a valid
+		// script tag and turn real JSON-LD into a measured absence. The scanner
+		// respects quoted attributes, skips comments and jumps over script bodies.
+		// The document-size guard above keeps this linear pass bounded.
+		$html_length = strlen( $html );
+		while ( $offset < $html_length ) {
+			$open_start = strpos( $html, '<', $offset );
+			if ( false === $open_start ) break;
+
+			if ( 0 === substr_compare( $html, '<!--', $open_start, 4 ) ) {
+				$comment_end = strpos( $html, '-->', $open_start + 4 );
+				if ( false === $comment_end ) {
+					// An unfinished comment can hide candidate markup. If its bounded
+					// tail mentions JSON-LD, absence is not a defensible measurement.
+					$tail = substr( $html, $open_start, min( 4096, $html_length - $open_start ) );
+					if ( false !== stripos( $tail, 'ld+json' ) || false !== stripos( $tail, '<script' ) ) {
+						return $this->schema_extraction_failed( 'unterminated_script_tag', $script_count );
+					}
+					break;
+				}
+				$offset = $comment_end + 3;
+				continue;
+			}
+
+			$name_start = $open_start + 1;
+			while ( $name_start < $html_length && ctype_space( $html[ $name_start ] ) ) $name_start++;
+			if ( $name_start >= $html_length || in_array( $html[ $name_start ], array( '/', '!', '?' ), true ) ) {
+				$offset = $open_start + 1;
+				continue;
+			}
+			$name_end = $name_start;
+			while ( $name_end < $html_length && preg_match( '/[A-Za-z0-9:-]/', $html[ $name_end ] ) ) $name_end++;
+			$tag_name = strtolower( substr( $html, $name_start, $name_end - $name_start ) );
+			if ( '' === $tag_name ) {
+				$offset = $open_start + 1;
+				continue;
+			}
+
+			$quote = '';
+			$tag_end = false;
+			for ( $i = $name_end; $i < $html_length; $i++ ) {
+				$char = $html[ $i ];
+				if ( '' !== $quote ) {
+					if ( $char === $quote ) $quote = '';
+					continue;
+				}
+				if ( '"' === $char || "'" === $char ) {
+					$quote = $char;
+					continue;
+				}
+				if ( '>' === $char ) {
+					$tag_end = $i;
+					break;
+				}
+			}
+			if ( false === $tag_end ) {
+				if ( 'script' === $tag_name || false !== stripos( substr( $html, $open_start, min( 4096, $html_length - $open_start ) ), 'ld+json' ) ) {
+					return $this->schema_extraction_failed( 'unterminated_script_tag', $script_count );
+				}
+				break;
+			}
+			$offset = $tag_end + 1;
+			if ( 'script' !== $tag_name ) continue;
+
+			$attrs      = substr( $html, $name_end, $tag_end - $name_end );
+			$body_start = $tag_end + 1;
 			$close_start = stripos( $html, '</script', $body_start );
 			$close_end   = false === $close_start ? false : strpos( $html, '>', $close_start );
 			$type_value = null;
@@ -1081,7 +1140,7 @@ class DHC_Crawler {
 	}
 
 	private function schema_extraction_failed( $reason, $script_count ) {
-		$allowed = array( 'input_limit_exceeded', 'script_limit_exceeded', 'script_size_limit_exceeded', 'unterminated_jsonld', 'ambiguous_script_type', 'json_parse_error' );
+		$allowed = array( 'input_limit_exceeded', 'script_limit_exceeded', 'script_size_limit_exceeded', 'unterminated_jsonld', 'unterminated_script_tag', 'ambiguous_script_type', 'json_parse_error' );
 		return array(
 			'version'     => 1,
 			'status'      => 'extraction_failed',

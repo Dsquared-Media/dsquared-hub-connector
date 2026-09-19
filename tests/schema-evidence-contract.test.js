@@ -54,6 +54,31 @@ test('crawler recognizes legal JSON-LD type attribute forms', () => {
   }
 });
 
+test('crawler respects quoted greater-than characters before JSON-LD type', () => {
+  for (const tag of [
+    '<script data-note=">" type="application/ld+json">{"@type":"Organization"}</script>',
+    "<script data-note='1 > 0' nonce='abc' type=application/ld+json>{\"@type\":\"LocalBusiness\"}</script>"
+  ]) {
+    const result = extract(tag);
+    assert.equal(result.status, 'measured');
+    assert.equal(result.present, true);
+    assert.equal(result.scriptCount, 1);
+    assert.equal(result.types.length, 1);
+  }
+});
+
+test('crawler ignores comment and attribute text that only looks like JSON-LD', () => {
+  const result = extract([
+    '<!-- <script type=application/ld+json>{"@type":"CommentFake"}</script> -->',
+    '<div data-example="<script type=application/ld+json>">ordinary text</div>',
+    '<script data-note=">" type=application/ld+json>{"@type":"WebSite"}</script>'
+  ].join(''));
+  assert.equal(result.status, 'measured');
+  assert.equal(result.present, true);
+  assert.equal(result.scriptCount, 1);
+  assert.deepEqual(result.types, ['WebSite']);
+});
+
 test('crawler fails closed when JSON-LD exceeds its bounded inspection envelope', () => {
   const twenty = Array.from({ length: 20 }, (_, i) =>
     `<script type="application/ld+json">${JSON.stringify({ '@type': `Type${i}` })}</script>`
@@ -77,6 +102,11 @@ test('crawler leaves ambiguous or unterminated JSON-LD unmeasured', () => {
   const unterminated = extract('<script type=application/ld+json>{"@type":"Organization"}');
   assert.equal(unterminated.status, 'extraction_failed');
   assert.equal(unterminated.reason, 'unterminated_jsonld');
+
+  const incompleteOpen = extract('<script data-note=">" type=application/ld+json');
+  assert.equal(incompleteOpen.status, 'extraction_failed');
+  assert.equal(incompleteOpen.present, null);
+  assert.equal(incompleteOpen.reason, 'unterminated_script_tag');
 });
 
 test('crawler does not treat script text containing a fake script tag as JSON-LD', () => {
