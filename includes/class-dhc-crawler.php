@@ -874,6 +874,10 @@ class DHC_Crawler {
 			'externalLinks'   => array(),
 			'images'          => array(),
 			'issues'          => array( 'critical' => 0, 'warnings' => 0, 'notices' => 0 ),
+			// Bounded, presence-only schema evidence. The Hub may use this when a
+			// direct validator fetch is challenged, but it cannot claim validity
+			// because no JSON-LD bodies or page HTML leave WordPress.
+			'schemaEvidence'  => $this->extract_schema_evidence( $html ),
 			'_raw_links'      => array(),
 		);
 
@@ -985,6 +989,69 @@ class DHC_Crawler {
 		if ( $page['noindex'] )                  { $page['issues']['notices']++; }
 
 		return $page;
+	}
+
+	/**
+	 * Measure structured-data presence and normalized types without retaining
+	 * scripts or full HTML. Any malformed JSON-LD makes the result unknown so a
+	 * partial parse can never be presented as a clean, complete measurement.
+	 */
+	private function extract_schema_evidence( $html ) {
+		$types        = array();
+		$script_count = 0;
+		$parse_failed = false;
+
+		preg_match_all( '/<script[^>]+type=["\']application\/ld\+json(?:;[^"\']*)?["\'][^>]*>(.*?)<\/script>/si', $html, $scripts );
+		foreach ( array_slice( $scripts[1] ?? array(), 0, 20 ) as $body ) {
+			$script_count++;
+			$decoded = json_decode( html_entity_decode( trim( $body ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ), true );
+			if ( JSON_ERROR_NONE !== json_last_error() ) {
+				$parse_failed = true;
+				continue;
+			}
+			$this->collect_schema_types( $decoded, $types );
+		}
+
+		// Microdata is presence/type evidence too. itemtype URLs are reduced to
+		// their final fragment/path component and subjected to the same cap.
+		preg_match_all( '/\bitemtype\s*=\s*["\']([^"\']+)["\']/si', $html, $microdata );
+		foreach ( array_slice( $microdata[1] ?? array(), 0, 20 ) as $raw_types ) {
+			foreach ( preg_split( '/\s+/', trim( $raw_types ) ) as $raw_type ) {
+				$type = preg_replace( '/^.*[\/#]/', '', $raw_type );
+				$this->add_schema_type( $type, $types );
+			}
+		}
+
+		$present = $script_count > 0 || ! empty( $microdata[1] );
+		return array(
+			'version'     => 1,
+			'status'      => $parse_failed ? 'extraction_failed' : 'measured',
+			'present'     => $parse_failed ? null : $present,
+			'types'       => array_values( array_slice( $types, 0, 20 ) ),
+			'provenance'  => 'connector_html',
+			'scriptCount' => min( 20, $script_count ),
+		);
+	}
+
+	private function collect_schema_types( $value, array &$types ) {
+		if ( count( $types ) >= 20 || ! is_array( $value ) ) return;
+		if ( isset( $value['@type'] ) ) {
+			foreach ( (array) $value['@type'] as $type ) $this->add_schema_type( $type, $types );
+		}
+		foreach ( $value as $child ) {
+			if ( is_array( $child ) ) $this->collect_schema_types( $child, $types );
+			if ( count( $types ) >= 20 ) break;
+		}
+	}
+
+	private function add_schema_type( $value, array &$types ) {
+		if ( count( $types ) >= 20 || ! is_scalar( $value ) ) return;
+		$type = sanitize_text_field( (string) $value );
+		$type = preg_replace( '/^.*[\/#]/', '', $type );
+		$type = substr( trim( $type ), 0, 80 );
+		if ( $type && preg_match( '/^[A-Za-z][A-Za-z0-9_.:-]{0,79}$/', $type ) && ! in_array( $type, $types, true ) ) {
+			$types[] = $type;
+		}
 	}
 
 	// ── Hub API calls ─────────────────────────────────────────────────────────────
