@@ -17,7 +17,7 @@ Adds a bounded `schemaEvidence` object to each successfully parsed connector pag
 ## Evidence
 
 - `php -l includes/class-dhc-crawler.php`: pass.
-- `node --test tests/*.test.js`: 46/46 pass.
+- `node --test tests/*.test.js`: 47/47 pass.
 - Functional PHP reflection fixtures verify present, absent, malformed, quoted/unquoted/mixed-case attributes, type cap, 21st-block fail-closed behavior, size bounds, ambiguous/unterminated markup, and non-persistence of script contents.
 
 ## Known limitation
