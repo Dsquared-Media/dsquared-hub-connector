@@ -3,7 +3,7 @@
  * Plugin Name:       Dsquared Hub Connector
  * Plugin URI:        https://hub.dsquaredmedia.net
  * Description:       Connect your WordPress site to Dsquared Media Hub — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, AI discovery, content decay alerts, and lead capture. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
- * Version:           1.16.0
+ * Version:           1.17.4
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Dsquared Media
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Plugin constants ────────────────────────────────────────────────
-define( 'DHC_VERSION', '1.16.0' );
+define( 'DHC_VERSION', '1.17.4' );
 define( 'DHC_PLUGIN_FILE', __FILE__ );
 define( 'DHC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -157,6 +157,11 @@ function dhc_activate() {
     // Attempt AI Discovery auto-populate from Hub (deferred to avoid blocking activation)
     wp_schedule_single_event( time() + 10, 'dhc_auto_populate_profile' );
 
+    // Provision a narrow telemetry token (public-safe; replaces dhc_api_key in
+    // public HTML for event tracker and CWV beacon). Deferred 5s so the API key
+    // option is guaranteed committed before the HTTP call goes out.
+    DHC_Heartbeat::ensure_telemetry_token_scheduled();
+
     // Flush rewrite rules for REST endpoints
     flush_rewrite_rules();
 }
@@ -168,6 +173,11 @@ add_action( 'dhc_auto_populate_profile', function() {
         DHC_Hub_Sync::auto_populate_on_enable();
     }
 } );
+
+// Provision a narrow public-safe telemetry token on activation (and on any
+// cron retry when dhc_telemetry_token is missing). The private dhc_api_key
+// must never appear in public page HTML.
+add_action( DHC_Heartbeat::TELEMETRY_PROVISION_HOOK, array( 'DHC_Heartbeat', 'maybe_provision_telemetry_token' ) );
 
 // ── Deactivation hook ───────────────────────────────────────────────
 function dhc_deactivate() {
@@ -182,6 +192,7 @@ function dhc_deactivate() {
         'dhc_monthly_lead_reset',
         DHC_Heartbeat::CRON_HOOK,
         'dhc_auto_populate_profile',
+        DHC_Heartbeat::TELEMETRY_PROVISION_HOOK,
         // v1.10 cron hooks
         DHC_Inventory::CRON_HOOK,
         DHC_Link_Scanner::CRON_HOOK,
@@ -195,6 +206,7 @@ function dhc_deactivate() {
         }
         wp_clear_scheduled_hook( $hook );
     }
+    delete_option( DHC_Heartbeat::TELEMETRY_RETRY_OPTION );
 
     // Clear active crawl state and execution lock if present.
     delete_option( DHC_Crawler::STATE_KEY );
@@ -245,6 +257,7 @@ function dhc_init() {
         if ( class_exists( 'DHC_Inventory' ) )    DHC_Inventory::schedule();
         if ( class_exists( 'DHC_Link_Scanner' ) ) DHC_Link_Scanner::schedule();
         if ( class_exists( 'DHC_Crawler' ) )      DHC_Crawler::init()->schedule_poll();
+        DHC_Heartbeat::ensure_telemetry_token_scheduled();
 
         // Self-heal rewrite rules. AI Discovery registers /llms.txt and
         // /.well-known/ai-plugin.json rewrites, which stop working when
@@ -270,6 +283,11 @@ function dhc_init() {
         if ( class_exists( 'DHC_Inventory' ) )    DHC_Inventory::schedule();
         if ( class_exists( 'DHC_Link_Scanner' ) ) DHC_Link_Scanner::schedule();
         if ( class_exists( 'DHC_Crawler' ) )      DHC_Crawler::init()->schedule_poll();
+        // Existing installs upgrading from v1.17.3 and earlier never ran the
+        // activation hook for this version, so dhc_telemetry_token was never
+        // provisioned. Provision it now on first load after upgrade.
+        DHC_Heartbeat::ensure_telemetry_token_scheduled();
+
         // Defer rewrite flush + llms.txt regen to 'init' — $wp_rewrite
         // doesn't exist on plugins_loaded, and regenerate_static_files()
         // calls get_permalink() which dereferences it (v1.13.3/1.13.4

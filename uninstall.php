@@ -17,6 +17,8 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 $options = array(
     // Core
     'dhc_api_key',
+    'dhc_telemetry_token',
+    'dhc_telemetry_provision_retry',
     'dhc_modules',
     'dhc_subscription',
     'dhc_activity_log',
@@ -47,12 +49,13 @@ global $wpdb;
 $wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key LIKE '_dhc\_%'" );
 
 // ── Remove scheduled cron events ────────────────────────────
-$crons = array( 'dhc_content_decay_scan', 'dhc_monthly_lead_reset' );
+$crons = array( 'dhc_content_decay_scan', 'dhc_monthly_lead_reset', 'dhc_provision_telemetry_token' );
 foreach ( $crons as $hook ) {
     $timestamp = wp_next_scheduled( $hook );
     if ( $timestamp ) {
         wp_unschedule_event( $timestamp, $hook );
     }
+    wp_clear_scheduled_hook( $hook );
 }
 
 // ── Remove generated files ──────────────────────────────────

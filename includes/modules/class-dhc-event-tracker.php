@@ -293,14 +293,16 @@ class DHC_Event_Tracker {
 		if ( ! empty( $queue ) ) update_option( 'dhc_track_queue', array(), false );
 
 		// Hub beacon config — only attached when the user opted in AND
-		// an API key is configured. Without one we silently skip the
-		// beacon path; events still go to dataLayer/gtag.
-		$api_key = get_option( 'dhc_api_key', '' );
+		// a telemetry token is configured. Use dhc_telemetry_token (narrow,
+		// public-safe) NOT dhc_api_key (private connector key — must never
+		// appear in public HTML because the same key authenticates privileged
+		// Hub and WordPress REST write routes).
+		$telemetry_token = get_option( 'dhc_telemetry_token', '' );
 		$hub_base = defined( 'DHC_HUB_API_BASE' ) ? DHC_HUB_API_BASE : 'https://hub.dsquaredmedia.net/api';
-		$beacon = ( ! empty( $cfg['send_to_hub'] ) && ! empty( $api_key ) )
+		$beacon = ( ! empty( $cfg['send_to_hub'] ) && ! empty( $telemetry_token ) )
 			? array(
 				'url'      => rtrim( $hub_base, '/' ) . '/plugin/events',
-				'api_key'  => $api_key,
+				'api_key'  => $telemetry_token,
 				'site_url' => home_url( '/' ),
 			)
 			: null;
@@ -325,27 +327,71 @@ class DHC_Event_Tracker {
 			var beacon_queue = [];
 			var BEACON_FLUSH_MS = 30 * 1000;
 			var BEACON_MAX_QUEUE = 50; // flush early if queue grows past this
+			var _beaconFlushing = false; // guard: only one in-flight fetch at a time
+			var BEACON_MAX_RETRY = 3;
 
 			function flushBeacon(useSendBeacon) {
 				if (!BEACON || !beacon_queue.length) return;
-				var batch = beacon_queue.splice(0, beacon_queue.length);
+				// Snapshot the queue without removing — removal only happens after
+				// confirmed delivery so a network failure doesn't silently discard events.
+				var batch = beacon_queue.slice(0);
 				var payload = JSON.stringify({ events: batch, site_url: BEACON.site_url });
-				try {
-					if (useSendBeacon && navigator.sendBeacon) {
-						// sendBeacon doesn't support custom headers — encode the
-						// API key as a query param for this code path only.
-						var url = BEACON.url + (BEACON.url.indexOf('?') >= 0 ? '&' : '?') + 'k=' + encodeURIComponent(BEACON.api_key);
-						navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }));
-					} else {
+
+				if (useSendBeacon) {
+					// pagehide path: sendBeacon cannot set custom headers, and putting the
+					// token in the URL (?k=) would expose it in server access logs and CDN
+					// caches. Use fetch(keepalive:true) instead — browsers are required to
+					// honour keepalive during page unload since the Fetch spec was updated.
+					// If fetch isn't available (very old browsers) we drop the batch rather
+					// than risk leaking the token in a URL.
+					beacon_queue.splice(0, batch.length);
+					try {
 						fetch(BEACON.url, {
 							method: 'POST',
 							credentials: 'omit',
 							headers: { 'Content-Type': 'application/json', 'X-DHC-API-Key': BEACON.api_key, 'X-DHC-Site-Url': BEACON.site_url },
 							body: payload,
 							keepalive: true
-						}).catch(function() { /* network blip — give up, next flush will pick up new events */ });
-					}
-				} catch (e) { /* never let beacon throw block the page */ }
+						}).catch(function() { /* fire-and-forget on unload */ });
+					} catch (e) { /* never block page unload */ }
+					return;
+				}
+
+				// Interval path: use fetch with bounded retry so transient network
+				// blips don't permanently lose events.
+				if (_beaconFlushing) return; // previous flush still in-flight
+				_beaconFlushing = true;
+
+				function attempt(n) {
+					fetch(BEACON.url, {
+						method: 'POST',
+						credentials: 'omit',
+						headers: { 'Content-Type': 'application/json', 'X-DHC-API-Key': BEACON.api_key, 'X-DHC-Site-Url': BEACON.site_url },
+						body: payload,
+						keepalive: true
+					}).then(function(resp) {
+						if (resp.ok) {
+							// Confirmed delivery — now safe to remove from queue.
+							beacon_queue.splice(0, batch.length);
+							_beaconFlushing = false;
+						} else if (n < BEACON_MAX_RETRY) {
+							setTimeout(function() { attempt(n + 1); }, 1000 * Math.pow(2, n - 1));
+						} else {
+							beacon_queue.splice(0, batch.length);
+							console.warn('[DHC] Hub beacon: ' + batch.length + ' events lost after ' + BEACON_MAX_RETRY + ' attempts (HTTP ' + resp.status + ')');
+							_beaconFlushing = false;
+						}
+					}).catch(function() {
+						if (n < BEACON_MAX_RETRY) {
+							setTimeout(function() { attempt(n + 1); }, 1000 * Math.pow(2, n - 1));
+						} else {
+							beacon_queue.splice(0, batch.length);
+							console.warn('[DHC] Hub beacon: ' + batch.length + ' events lost after ' + BEACON_MAX_RETRY + ' attempts (network error)');
+							_beaconFlushing = false;
+						}
+					});
+				}
+				attempt(1);
 			}
 			if (BEACON) {
 				setInterval(function() { flushBeacon(false); }, BEACON_FLUSH_MS);

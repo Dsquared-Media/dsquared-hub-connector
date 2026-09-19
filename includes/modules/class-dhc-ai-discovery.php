@@ -105,10 +105,19 @@ class DHC_AI_Discovery {
             return new WP_Error( 'empty_profile', 'No business profile to write.' );
         }
 
+        // llms.txt and llms-full.txt both carry the full business profile content
+        // (Key Pages + Recent Articles) so AI crawlers that only fetch llms.txt
+        // still see the complete picture. Skip llms.txt only if a Hub-curated
+        // version is stored in dhc_llms_txt_raw — that raw content already has
+        // whatever the Hub operator chose to put there.
+        $has_raw  = (bool) get_option( 'dhc_llms_txt_raw', '' );
+        $full     = $this->generate_llms_full( $profile );
         $files = array(
-            ABSPATH . 'llms.txt'      => $this->generate_llms_summary( $profile ),
-            ABSPATH . 'llms-full.txt' => $this->generate_llms_full( $profile ),
+            ABSPATH . 'llms-full.txt' => $full,
         );
+        if ( ! $has_raw ) {
+            $files[ ABSPATH . 'llms.txt' ] = $full;
+        }
 
         foreach ( $files as $path => $content ) {
             $ok = @file_put_contents( $path, $content );
@@ -116,6 +125,17 @@ class DHC_AI_Discovery {
                 $written[] = $path;
                 @chmod( $path, 0644 );
             }
+        }
+
+        // Ensure nginx/Apache serves the physical .txt files as UTF-8.
+        // Without this, servers that don't add a charset header will render
+        // smart quotes and em dashes as mojibake (â€" instead of —).
+        $htaccess = ABSPATH . '.htaccess';
+        $marker   = '# DHC: force UTF-8 charset on llms txt files';
+        $block    = "\n{$marker}\n<FilesMatch \"^llms.*\\.txt$\">\n    AddCharset UTF-8 .txt\n</FilesMatch>\n# /DHC: force UTF-8 charset\n";
+        $current  = @file_get_contents( $htaccess );
+        if ( $current !== false && strpos( $current, $marker ) === false ) {
+            @file_put_contents( $htaccess, $current . $block );
         }
 
         if ( empty( $written ) ) {
@@ -134,6 +154,19 @@ class DHC_AI_Discovery {
 
         $is_full = ( $uri === 'llms-full.txt' );
 
+        // Raw content pushed from Hub takes precedence over generated content.
+        if ( ! $is_full ) {
+            $raw = get_option( 'dhc_llms_txt_raw', '' );
+            if ( is_string( $raw ) && trim( $raw ) !== '' ) {
+                status_header( 200 );
+                header( 'Content-Type: text/plain; charset=utf-8' );
+                header( 'X-Robots-Tag: noindex' );
+                header( 'Cache-Control: public, max-age=3600' );
+                echo $raw;
+                exit;
+            }
+        }
+
         $profile = get_option( 'dhc_business_profile', array() );
         if ( empty( $profile ) ) {
             $profile = $this->build_fallback_profile();
@@ -149,11 +182,9 @@ class DHC_AI_Discovery {
         header( 'Content-Type: text/plain; charset=utf-8' );
         header( 'X-Robots-Tag: noindex' );
         header( 'Cache-Control: public, max-age=3600' );
-        if ( $is_full ) {
-            echo $this->generate_llms_full( $profile );
-        } else {
-            echo $this->generate_llms_summary( $profile );
-        }
+        // Both llms.txt and llms-full.txt serve the full profile so AI crawlers
+        // that only fetch llms.txt still get Key Pages + Recent Articles.
+        echo $this->generate_llms_full( $profile );
         exit;
     }
 
@@ -191,6 +222,17 @@ class DHC_AI_Discovery {
                 $is_llms_full = true;
             } else {
                 return;
+            }
+        }
+
+        // Raw content pushed from Hub takes precedence over generated content.
+        if ( $is_llms && ! $is_llms_full ) {
+            $raw = get_option( 'dhc_llms_txt_raw', '' );
+            if ( is_string( $raw ) && trim( $raw ) !== '' ) {
+                header( 'Content-Type: text/plain; charset=utf-8' );
+                header( 'X-Robots-Tag: noindex' );
+                echo $raw;
+                exit;
             }
         }
 
@@ -315,8 +357,8 @@ class DHC_AI_Discovery {
         // output exactly (# name, > description, ## Type, ## Services,
         // ## Service Areas, ## Contact, ## Hours) so the live /llms.txt
         // matches what the user sees in the Hub, field for field.
-        $name     = $profile['business_name'] ?? get_bloginfo( 'name' );
-        $desc     = $profile['description'] ?? get_bloginfo( 'description' );
+        $name     = html_entity_decode( $profile['business_name'] ?? get_bloginfo( 'name' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        $desc     = html_entity_decode( $profile['description'] ?? get_bloginfo( 'description' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
         $type     = $profile['business_type'] ?? '';
         $url      = home_url( '/' );
         $phone    = $profile['phone'] ?? '';
@@ -372,8 +414,8 @@ class DHC_AI_Discovery {
     /* ─── Generate llms-full.txt (detailed) ─── */
 
     private function generate_llms_full( $profile ) {
-        $name     = $profile['business_name'] ?? get_bloginfo( 'name' );
-        $desc     = $profile['description'] ?? get_bloginfo( 'description' );
+        $name     = html_entity_decode( $profile['business_name'] ?? get_bloginfo( 'name' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        $desc     = html_entity_decode( $profile['description'] ?? get_bloginfo( 'description' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
         $url      = home_url( '/' );
         $phone    = $profile['phone'] ?? '';
         $email    = $profile['email'] ?? '';
@@ -466,7 +508,8 @@ class DHC_AI_Discovery {
         $output .= "## Key Pages\n\n";
         $pages = get_pages( array( 'number' => 20, 'sort_column' => 'menu_order' ) );
         foreach ( $pages as $page ) {
-            $output .= "- [{$page->post_title}](" . get_permalink( $page->ID ) . ")\n";
+            $title   = html_entity_decode( $page->post_title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+            $output .= "- [{$title}](" . get_permalink( $page->ID ) . ")\n";
         }
         $output .= "\n";
 
@@ -476,7 +519,8 @@ class DHC_AI_Discovery {
             $output .= "## Recent Articles\n\n";
             foreach ( $posts as $post ) {
                 $date    = date( 'm/d/Y', strtotime( $post->post_date ) );
-                $output .= "- [{$post->post_title}](" . get_permalink( $post->ID ) . ") — {$date}\n";
+                $title   = html_entity_decode( $post->post_title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+                $output .= "- [{$title}](" . get_permalink( $post->ID ) . ") \xe2\x80\x94 {$date}\n";
             }
             $output .= "\n";
         }
@@ -776,11 +820,81 @@ class DHC_AI_Discovery {
             'callback' => array( $this, 'manual_ping' ),
             'permission_callback' => array( $this, 'check_api_key' ),
         ) );
+
+        // Raw push — Hub sends verbatim llms.txt content, plugin writes it directly.
+        register_rest_route( 'dsquared-hub/v1', '/ai-discovery/raw', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'write_raw_content' ),
+            'permission_callback' => array( $this, 'check_api_key' ),
+        ) );
+    }
+
+    /**
+     * Static callback used by the top-level /ai-discovery route registered in
+     * class-dhc-rest.php. Delegates to the singleton instance's save_profile so
+     * both routes share the same logic.
+     */
+    public static function handle_request( $request ) {
+        return self::init()->save_profile( $request );
     }
 
     public function check_api_key( $request ) {
         $result = DHC_API_Key::authenticate_request( $request );
         return ( true === $result );
+    }
+
+    /**
+     * Write verbatim llms.txt content sent from the Hub.
+     *
+     * Stores in two places so both server configurations are covered:
+     *   1. Physical file at ABSPATH/llms.txt — nginx hosts with try_files
+     *      serve this directly without invoking PHP.
+     *   2. dhc_llms_txt_raw WP option — dynamic handlers check this first
+     *      so PHP-served hosts also return the curated content rather than
+     *      re-generating from the business profile.
+     */
+    public function write_raw_content( $request ) {
+        $data    = $request->get_json_params();
+        $content = $data['content'] ?? '';
+        if ( ! is_string( $content ) || trim( $content ) === '' ) {
+            return new WP_Error( 'empty_content', 'content field is required', array( 'status' => 400 ) );
+        }
+
+        // Normalize line endings, ensure UTF-8, strip any null bytes.
+        $content = str_replace( "\r\n", "\n", $content );
+        $content = str_replace( "\r", "\n", $content );
+        $content = preg_replace( '/\0/', '', $content );
+
+        // Write physical file — required on nginx hosts.
+        $path = ABSPATH . 'llms.txt';
+        $ok   = @file_put_contents( $path, $content );
+        if ( $ok === false ) {
+            return new WP_Error(
+                'write_failed',
+                'Could not write to ' . $path . '. Check WP-root write permissions.',
+                array( 'status' => 500 )
+            );
+        }
+        @chmod( $path, 0644 );
+
+        // Store in option so PHP dynamic handler serves the same content.
+        update_option( 'dhc_llms_txt_raw', $content );
+
+        $this->log_activity( 'Raw llms.txt written (' . strlen( $content ) . ' bytes) via Hub push' );
+
+        if ( class_exists( 'DHC_Event_Logger' ) ) {
+            DHC_Event_Logger::ai_discovery(
+                'llms_txt_raw_pushed',
+                array( 'bytes' => strlen( $content ), 'time' => current_time( 'mysql' ) ),
+                'Raw llms.txt pushed from Hub'
+            );
+        }
+
+        return new WP_REST_Response( array(
+            'success' => true,
+            'message' => 'llms.txt written (' . strlen( $content ) . ' bytes)',
+            'url'     => home_url( '/llms.txt' ),
+        ), 200 );
     }
 
     public function save_profile( $request ) {

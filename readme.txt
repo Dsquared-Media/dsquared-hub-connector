@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.16.0
+Stable tag: 1.17.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,12 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.17.4 =
+* Security: Public event and Core Web Vitals scripts now use a narrow telemetry token instead of the private connector key.
+* Security: Browser telemetry sends the token in the `X-DHC-API-Key` header and never places it in a URL.
+* Reliability: Existing installs provision the telemetry token automatically after upgrade and retry failures with bounded exponential backoff.
+* Cleanup: Removing the plugin deletes its telemetry token, retry state, and provisioning schedule.
 
 = 1.16.0 =
 * Large-site scans now support up to 500 pages in one logical audit. Each accepted chunk rotates the same tenant/job/connector/nonce-bound claim and renews its one-hour idle lease, with a four-hour absolute cap.
