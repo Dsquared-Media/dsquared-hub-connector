@@ -56,11 +56,22 @@ test('the proven heartbeat cron also drives one crawler tick per cadence window'
   assert.doesNotMatch(tick, /delete_transient\( self::LOCK_TRANSIENT \)/);
 });
 
-test('release metadata identifies the renewable large-site crawler version', () => {
+test('active crawls chain bounded background batches without waiting five minutes', () => {
+  assert.match(crawler, /const CONTINUE_HOOK = 'dhc_crawler_continue'/);
+  assert.match(crawler, /add_action\( self::CONTINUE_HOOK, array\( \$this, 'run_poll_tick' \) \)/);
+  assert.match(crawler, /wp_schedule_single_event\( time\(\), self::CONTINUE_HOOK, array\(\), true \)/);
+  assert.match(crawler, /register_shutdown_function/);
+  assert.match(crawler, /delete_transient\( self::LOCK_TRANSIENT \)/);
+  assert.match(crawler, /spawn_cron\( time\(\) \)/);
+  assert.match(crawler, /\$this->schedule_continuation\(\)/);
+  assert.doesNotMatch(crawler, /register_rest_route[^\n]+crawler_continue/);
+});
+
+test('release metadata identifies the fast renewable crawler version', () => {
   const readme = fs.readFileSync(path.join(root, 'readme.txt'), 'utf8');
-  assert.match(plugin, /Version:\s+1\.17\.7/);
-  assert.match(plugin, /define\( 'DHC_VERSION', '1\.17\.7' \)/);
-  assert.match(readme, /Stable tag:\s+1\.17\.7/);
+  assert.match(plugin, /Version:\s+1\.17\.8/);
+  assert.match(plugin, /define\( 'DHC_VERSION', '1\.17\.8' \)/);
+  assert.match(readme, /Stable tag:\s+1\.17\.8/);
 });
 
 test('crawler stores bounded diagnostics without response bodies or credentials', () => {

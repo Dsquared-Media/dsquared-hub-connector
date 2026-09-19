@@ -49,7 +49,7 @@ global $wpdb;
 $wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key LIKE '_dhc\_%'" );
 
 // ── Remove scheduled cron events ────────────────────────────
-$crons = array( 'dhc_content_decay_scan', 'dhc_monthly_lead_reset', 'dhc_provision_telemetry_token' );
+$crons = array( 'dhc_content_decay_scan', 'dhc_monthly_lead_reset', 'dhc_provision_telemetry_token', 'dhc_crawler_poll', 'dhc_crawler_continue' );
 foreach ( $crons as $hook ) {
     $timestamp = wp_next_scheduled( $hook );
     if ( $timestamp ) {
