@@ -38,6 +38,17 @@ class DHC_REST {
             ),
         ) );
 
+        // ── Outbound crawler wake hint ──────────────────────────
+        // The Hub calls this immediately after it durably queues a crawl job.
+        // It only schedules the existing bounded outbound poll worker; the
+        // five-minute cron remains the recovery path if loopback cron is
+        // unavailable. Exact-site API-key auth prevents public wake abuse.
+        register_rest_route( self::NAMESPACE, '/crawler/wake', array(
+            'methods'             => 'POST',
+            'callback'            => array( __CLASS__, 'handle_crawler_wake' ),
+            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
+        ) );
+
         // ── Auto-Post endpoint ──────────────────────────────────
         register_rest_route( self::NAMESPACE, '/post', array(
             'methods'             => 'POST',
@@ -182,6 +193,28 @@ class DHC_REST {
             'callback'            => array( 'DHC_Link_Scanner', 'handle_list_request' ),
             'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
         ) );
+    }
+
+    /**
+     * Schedule one immediate connector poll without doing crawl work in the
+     * inbound REST request. Repeated wake hints are safe and idempotent.
+     *
+     * @return WP_REST_Response|WP_Error
+     */
+    public static function handle_crawler_wake() {
+        if ( ! class_exists( 'DHC_Crawler' ) ) {
+            return new WP_Error( 'crawler_unavailable', 'Crawler worker is unavailable.', array( 'status' => 503 ) );
+        }
+
+        $queued = DHC_Crawler::init()->schedule_immediate_poll();
+        if ( ! $queued ) {
+            return new WP_Error( 'crawler_wake_failed', 'Crawler wake could not be scheduled.', array( 'status' => 503 ) );
+        }
+
+        return new WP_REST_Response( array(
+            'accepted' => true,
+            'mode'     => 'outbound_poll',
+        ), 202 );
     }
 
     /**

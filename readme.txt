@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.17.8
+Stable tag: 1.17.9
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,9 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.17.9 =
+* Add an authenticated, idempotent crawler wake endpoint so newly queued Hub audits can start immediately while retaining the five-minute recovery poll.
 
 = 1.17.8 =
 * Continue large Hub audit crawls in bounded background batches instead of waiting five minutes between every 20 pages.
