@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
 const crawler = fs.readFileSync(path.join(root, 'includes/class-dhc-crawler.php'), 'utf8');
@@ -80,9 +81,95 @@ test('authenticated wake hints queue the bounded outbound worker and keep cron r
   assert.match(rest, /'permission_callback'\s*=>\s*array\( 'DHC_API_Key', 'authenticate_request' \)/);
   assert.match(rest, /DHC_Crawler::init\(\)->schedule_immediate_poll\(\)/);
   assert.match(crawler, /public function schedule_immediate_poll\(\)/);
-  assert.match(crawler, /\$this->schedule_continuation\(\)/);
+  const wakeMethod = crawler.match(/public function schedule_immediate_poll\(\)[\s\S]+?\n\t}/)?.[0] || '';
+  assert.doesNotMatch(wakeMethod, /\$this->schedule_continuation\(\)/);
+  assert.match(wakeMethod, /wp_schedule_single_event\( \$run_at, self::CONTINUE_HOOK/);
+  assert.match(wakeMethod, /get_transient\( self::LOCK_TRANSIENT \)/);
   assert.match(crawler, /wp_next_scheduled\( self::CONTINUE_HOOK \)/);
   assert.match(crawler, /wp_schedule_event\( time\(\), self::INTERVAL_NAME, self::CRON_HOOK/);
+});
+
+test('REST wake scheduling never releases a crawler lock owned by another request', () => {
+  const php = `
+    define('ABSPATH', __DIR__);
+    define('DHC_VERSION', '1.17.9');
+    class WP_Error { private $code; public function __construct($code) { $this->code = $code; } public function get_error_code() { return $this->code; } }
+    class DHC_Heartbeat { const CRON_HOOK = 'dhc_heartbeat'; }
+    function add_filter() {}
+    function add_action() {}
+    function esc_html__($value) { return $value; }
+    function sanitize_key($value) { return $value; }
+    function update_option() {}
+    function get_option($key, $default = null) { return $default; }
+    function get_transient($key) { return true; }
+    function wp_next_scheduled() { return false; }
+    function wp_schedule_single_event($timestamp, $hook, $args, $wp_error) { $GLOBALS['scheduled_at'] = $timestamp; return true; }
+    function is_wp_error($value) { return $value instanceof WP_Error; }
+    function spawn_cron() { $GLOBALS['spawned']++; }
+    function delete_transient() { $GLOBALS['deleted']++; }
+    $GLOBALS['spawned'] = 0;
+    $GLOBALS['deleted'] = 0;
+    $GLOBALS['scheduled_at'] = 0;
+    require ${JSON.stringify(path.join(root, 'includes/class-dhc-crawler.php'))};
+    $before = time();
+    $accepted = DHC_Crawler::init()->schedule_immediate_poll();
+    register_shutdown_function(function() use ($accepted, $before) {
+      echo json_encode(array(
+        'accepted' => $accepted,
+        'delay' => $GLOBALS['scheduled_at'] - $before,
+        'spawned' => $GLOBALS['spawned'],
+        'deleted' => $GLOBALS['deleted'],
+      ));
+    });
+  `;
+  const result = JSON.parse(execFileSync('php', ['-r', php], { encoding: 'utf8' }));
+  assert.equal(result.accepted, true);
+  assert.ok(result.delay >= 271 && result.delay <= 272, 'locked wake must run after the lock TTL');
+  assert.equal(result.spawned, 0, 'locked wake must not force a competing cron request');
+  assert.equal(result.deleted, 0, 'REST wake must not delete the worker-owned lock');
+});
+
+test('an unlocked REST wake dispatches once and repeated pending wakes do no extra work', () => {
+  const php = `
+    define('ABSPATH', __DIR__);
+    define('DHC_VERSION', '1.17.9');
+    class WP_Error { public function get_error_code() { return 'error'; } }
+    class DHC_Heartbeat { const CRON_HOOK = 'dhc_heartbeat'; }
+    function add_filter() {}
+    function add_action() {}
+    function esc_html__($value) { return $value; }
+    function sanitize_key($value) { return $value; }
+    function update_option() {}
+    function get_option($key, $default = null) { return $default; }
+    function get_transient($key) { return false; }
+    function wp_next_scheduled() { return false; }
+    function wp_schedule_single_event($timestamp, $hook, $args, $wp_error) { $GLOBALS['scheduled']++; return true; }
+    function is_wp_error($value) { return $value instanceof WP_Error; }
+    function spawn_cron() { $GLOBALS['spawned']++; }
+    function delete_transient() { $GLOBALS['deleted']++; }
+    $GLOBALS['scheduled'] = 0;
+    $GLOBALS['spawned'] = 0;
+    $GLOBALS['deleted'] = 0;
+    require ${JSON.stringify(path.join(root, 'includes/class-dhc-crawler.php'))};
+    $crawler = DHC_Crawler::init();
+    $first = $crawler->schedule_immediate_poll();
+    $second = $crawler->schedule_immediate_poll();
+    register_shutdown_function(function() use ($first, $second) {
+      echo json_encode(array(
+        'first' => $first,
+        'second' => $second,
+        'scheduled' => $GLOBALS['scheduled'],
+        'spawned' => $GLOBALS['spawned'],
+        'deleted' => $GLOBALS['deleted'],
+      ));
+    });
+  `;
+  const result = JSON.parse(execFileSync('php', ['-r', php], { encoding: 'utf8' }));
+  assert.equal(result.first, true);
+  assert.equal(result.second, true);
+  assert.equal(result.scheduled, 1);
+  assert.equal(result.spawned, 1);
+  assert.equal(result.deleted, 0);
 });
 
 test('crawler stores bounded diagnostics without response bodies or credentials', () => {

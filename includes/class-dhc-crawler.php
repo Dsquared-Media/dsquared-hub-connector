@@ -295,8 +295,38 @@ class DHC_Crawler {
 	 * @return bool True when an immediate event is queued or already pending.
 	 */
 	public function schedule_immediate_poll() {
-		$this->schedule_continuation();
-		return $this->continuation_scheduled || (bool) wp_next_scheduled( self::CONTINUE_HOOK );
+		// Do not call schedule_continuation() here. That helper is entered by the
+		// crawler worker itself and its shutdown callback releases the lock owned by
+		// that worker. A concurrent REST wake must never delete another request's
+		// lock, otherwise two crawler ticks can overlap.
+		if ( $this->continuation_scheduled || wp_next_scheduled( self::CONTINUE_HOOK ) ) {
+			return true;
+		}
+
+		// If a worker currently owns the cadence lock, keep the wake durable but
+		// defer it until that lock has certainly expired. The normal five-minute
+		// poll remains the final recovery path. When no worker is active, dispatch
+		// the newly-created event at shutdown without touching lock state.
+		$lock_held = (bool) get_transient( self::LOCK_TRANSIENT );
+		$run_at    = time() + ( $lock_held ? self::LOCK_TTL_SEC + 1 : 0 );
+		$scheduled = wp_schedule_single_event( $run_at, self::CONTINUE_HOOK, array(), true );
+		if ( is_wp_error( $scheduled ) ) {
+			$this->record_diagnostic( 'wake_schedule_failed', array(
+				'error_code' => sanitize_key( $scheduled->get_error_code() ),
+			) );
+			return false;
+		}
+
+		$this->continuation_scheduled = true;
+		if ( ! $lock_held ) {
+			register_shutdown_function( function() {
+				if ( function_exists( 'spawn_cron' ) ) {
+					spawn_cron( time() );
+				}
+			} );
+		}
+
+		return true;
 	}
 
 	// ── Main cron tick ───────────────────────────────────────────────────────────
