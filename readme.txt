@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.17.9
+Stable tag: 1.17.10
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,12 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.17.10 =
+* Fetch same-site audit pages in deterministic three-request batches with a 27-second page-fetch budget.
+* Preserve per-hop redirect validation, exact-site job binding, cancellation checks, chunk idempotency, and serial fallback compatibility.
+* Emit bounded versioned `connector_html` JSON-LD evidence, distinguishing measured presence/absence from failed extraction without storing raw markup.
+* Cap every page response at 400 KB plus one truncation sentinel byte before buffering, preventing oversized pages from becoming false schema absences.
 
 = 1.17.9 =
 * Add an authenticated, idempotent crawler wake endpoint so newly queued Hub audits can start immediately while retaining the five-minute recovery poll.
