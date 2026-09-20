@@ -1,0 +1,5 @@
+{
+  "description": "Representative same-origin page response times in milliseconds",
+  "latenciesMs": [800, 1200, 500, 900, 700, 1100, 400, 1000, 600],
+  "workers": 3
+}

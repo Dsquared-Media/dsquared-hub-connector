@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.17.10
+
+- Fetch same-site audit pages in deterministic three-request batches with a 27-second page-fetch budget.
+- Preserve exact-site binding, per-hop redirect validation, cancellation checks, queue/chunk ordering, and the serial compatibility fallback.
+- Emit bounded versioned `connector_html` JSON-LD evidence, distinguishing measured presence/absence from failed extraction without storing raw markup.
+- Cap every page response at 400 KB plus one truncation sentinel byte before buffering, so oversized schema-free pages remain unmeasured rather than becoming false absences.
+
 ## 1.17.9
 
 - Add an authenticated, idempotent crawler wake endpoint so newly queued Hub audits can start immediately while retaining the five-minute recovery poll.

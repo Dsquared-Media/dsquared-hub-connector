@@ -41,7 +41,9 @@
  *   users, terms, options outside the above) is modified.
  *
  * ── Request path (WP Engine loopback assumption) ─────────────────────────────
- * wp_remote_get() calls are made to the site's own public canonical domain.
+ * Page requests are made to the site's own public canonical domain through
+ * WordPress's bundled Requests cURL-multi transport, with wp_remote_get() as a
+ * compatibility fallback when true concurrency is unavailable.
  * On managed hosts (WP Engine, Flywheel), the server-side DNS typically
  * resolves the site's own hostname to the local web server rather than to
  * the upstream CDN (Cloudflare), bypassing the edge WAF. This behaviour
@@ -104,6 +106,12 @@ class DHC_Crawler {
 	/** Pages to crawl per cron tick (keeps each tick under ~30 s) */
 	const PAGES_PER_TICK = 20;
 
+	/** Conservative same-origin concurrency; avoids flooding small WordPress hosts. */
+	const CONCURRENT_FETCH_WORKERS = 3;
+
+	/** Stop starting page-fetch rounds after this many wall-clock seconds. */
+	const FETCH_WALL_CLOCK_BUDGET_SEC = 27;
+
 	/** Pages per chunk upload — Hub MAX_PAGES_PER_CHUNK is 100 */
 	const PAGES_PER_CHUNK = 50;
 
@@ -129,6 +137,13 @@ class DHC_Crawler {
 
 	/** Per-page fetch timeout in seconds */
 	const PAGE_TIMEOUT = 15;
+
+	/** Bounded HTML/schema extraction limits shared with the Hub envelope. */
+	const MAX_HTML_PARSE_BYTES = 409600;
+	const MAX_SCHEMA_SCRIPTS   = 20;
+	const MAX_SCHEMA_SCRIPT_BYTES = 131072;
+	const MAX_SCHEMA_TYPES     = 20;
+	const MAX_SCHEMA_NODES     = 5000;
 
 	/** Maximum redirect hops to follow per URL */
 	const MAX_REDIRECTS = 3;
@@ -542,40 +557,77 @@ class DHC_Crawler {
 		$chunk_index    = $state['chunk_index'];
 		$total_uploaded = $state['total_uploaded'];
 
+		// Re-check the persisted site binding on every continuation. This prevents
+		// stale or manually altered state from turning the connector into a fetcher
+		// for a different host after the original offer was claimed.
+		if ( $this->norm_host( $allowed_domain ) !== $this->norm_host( $this->site_host() ) ||
+			 ! $this->is_same_domain( $state['start_url'] ?? '', $this->site_host() ) ) {
+			delete_option( self::STATE_KEY );
+			$this->record_diagnostic( 'state_domain_mismatch', array(
+				'job_id' => sanitize_text_field( $job_id ),
+			) );
+			return;
+		}
+
 		$pages_batch = array();
 		$budget      = self::PAGES_PER_TICK;
+		$deadline    = microtime( true ) + self::FETCH_WALL_CLOCK_BUDGET_SEC;
 		$queue_before_tick    = $url_queue;
 		$visited_before_tick  = $visited;
 		$uploaded_before_tick = $total_uploaded;
 
-		while ( $budget > 0 && ! empty( $url_queue ) && $total_uploaded < $max_pages ) {
-			$url = array_shift( $url_queue );
+		while ( $budget > 0 && ! empty( $url_queue ) && $total_uploaded < $max_pages && microtime( true ) < $deadline ) {
+			$fetch_urls = array();
+			$batch_limit = min( self::CONCURRENT_FETCH_WORKERS, $max_pages - $total_uploaded );
+			while ( count( $fetch_urls ) < $batch_limit && $budget > 0 && ! empty( $url_queue ) ) {
+				$url = array_shift( $url_queue );
+				if ( in_array( $url, $visited, true ) ) {
+					continue;
+				}
+				$visited[]    = $url;
+				$fetch_urls[] = $url;
+				$budget--; // Every attempted URL consumes the bounded tick allowance.
+			}
 
-			if ( in_array( $url, $visited, true ) ) {
+			if ( empty( $fetch_urls ) ) {
 				continue;
 			}
-			$visited[] = $url;
 
-			$page_data = $this->crawl_page( $url, $allowed_domain );
-			if ( null === $page_data ) {
-				$budget--; // Count attempted pages against tick budget.
-				continue;
+			$page_results = $this->crawl_pages_batch( $fetch_urls, $allowed_domain, $deadline );
+
+			// Honor deletion/replacement of active state while network I/O was in
+			// flight. In that case do not upload the completed responses.
+			if ( ! $this->crawl_state_is_current( $job_id, $claim_token ) ) {
+				$this->record_diagnostic( 'crawl_cancelled', array(
+					'job_id' => sanitize_text_field( $job_id ),
+				) );
+				return;
 			}
 
-			// Discover links and enqueue unseen internal URLs (bounded).
-			foreach ( $page_data['_raw_links'] as $link ) {
-				if ( count( $url_queue ) >= self::MAX_QUEUE_SIZE ) {
-					break; // Queue cap reached — stop adding.
+			// Requests may complete out of order. Consume results in frontier order so
+			// page evidence, discovered links, and chunk payloads remain deterministic.
+			foreach ( $fetch_urls as $result_index => $url ) {
+				$page_data = $page_results[ $result_index ] ?? null;
+				if ( null === $page_data ) {
+					continue;
 				}
-				if ( ! in_array( $link, $visited, true ) && ! in_array( $link, $url_queue, true ) ) {
-					$url_queue[] = $link;
+
+				foreach ( $page_data['_raw_links'] as $link ) {
+					if ( count( $url_queue ) >= self::MAX_QUEUE_SIZE ) {
+						break;
+					}
+					if ( ! in_array( $link, $visited, true ) && ! in_array( $link, $url_queue, true ) ) {
+						$url_queue[] = $link;
+					}
+				}
+				unset( $page_data['_raw_links'] );
+
+				$pages_batch[] = $page_data;
+				$total_uploaded++;
+				if ( $total_uploaded >= $max_pages ) {
+					break;
 				}
 			}
-			unset( $page_data['_raw_links'] ); // Not part of the Hub payload.
-
-			$pages_batch[] = $page_data;
-			$total_uploaded++;
-			$budget--;
 		}
 
 		// Upload this tick's pages as one chunk.
@@ -712,6 +764,215 @@ class DHC_Crawler {
 
 	// ── Page fetching and parsing ────────────────────────────────────────────────
 
+	/** Return true only while this exact job/claim still owns active state. */
+	private function crawl_state_is_current( $job_id, $claim_token ) {
+		$current = get_option( self::STATE_KEY, null );
+		return is_array( $current ) &&
+			isset( $current['job_id'], $current['claim_token'] ) &&
+			hash_equals( (string) $current['job_id'], (string) $job_id ) &&
+			hash_equals( (string) $current['claim_token'], (string) $claim_token );
+	}
+
+	/**
+	 * Fetch and parse a small batch while preserving the caller's URL order.
+	 *
+	 * @param string[] $urls           Same-site URLs in BFS frontier order.
+	 * @param string   $allowed_domain Selected site's authorised host.
+	 * @param float    $deadline       Absolute microtime deadline.
+	 * @return array<int,array|null> Page data aligned to the input indexes.
+	 */
+	private function crawl_pages_batch( array $urls, $allowed_domain, $deadline ) {
+		$responses = $this->safe_fetch_batch( $urls, $allowed_domain, $deadline );
+		$pages     = array();
+
+		foreach ( $urls as $index => $url ) {
+			$resp = $responses[ $index ] ?? null;
+			if ( null === $resp ) {
+				$pages[ $index ] = null;
+				continue;
+			}
+			$pages[ $index ] = $this->crawl_page_response( $url, $resp, $allowed_domain );
+		}
+
+		return $pages;
+	}
+
+	/**
+	 * Concurrently fetch same-site URLs and manually validate every redirect hop.
+	 * Results are keyed by the original input index regardless of completion order.
+	 */
+	private function safe_fetch_batch( array $urls, $allowed_domain, $deadline ) {
+		$results = array_fill( 0, count( $urls ), null );
+		$pending = array();
+
+		foreach ( array_values( $urls ) as $index => $url ) {
+			$scheme = strtolower( (string) parse_url( $url, PHP_URL_SCHEME ) );
+			if ( in_array( $scheme, array( 'http', 'https' ), true ) &&
+				 ! $this->url_has_credentials( $url ) &&
+				 $this->is_same_domain( $url, $allowed_domain ) &&
+				 $this->is_crawlable_url( $url ) ) {
+				$pending[ $index ] = array( 'url' => $url, 'hop' => 0 );
+			}
+		}
+
+		while ( ! empty( $pending ) && microtime( true ) < $deadline ) {
+			$remaining = max( 1, (int) ceil( $deadline - microtime( true ) ) );
+			$timeout   = min( self::PAGE_TIMEOUT, $remaining );
+			$round_urls = array();
+			foreach ( $pending as $index => $entry ) {
+				$round_urls[ $index ] = $entry['url'];
+			}
+
+			$round_responses = $this->request_multiple( $round_urls, $timeout, $deadline );
+			$next_pending    = array();
+
+			foreach ( $pending as $index => $entry ) {
+				$resp = $round_responses[ $index ] ?? null;
+				if ( null === $resp ) {
+					continue;
+				}
+
+				$code = $this->response_code( $resp );
+				if ( $code >= 300 && $code < 400 ) {
+					$location = trim( $this->response_header( $resp, 'location' ) );
+					$next_url = $location ? $this->resolve_url( $entry['url'], $location ) : null;
+					$next_hop = (int) $entry['hop'] + 1;
+					$scheme   = $next_url ? strtolower( (string) parse_url( $next_url, PHP_URL_SCHEME ) ) : '';
+
+					if ( $next_url && $next_hop <= self::MAX_REDIRECTS &&
+						 ! $this->url_has_credentials( $next_url ) &&
+						 in_array( $scheme, array( 'http', 'https' ), true ) &&
+						 $this->is_same_domain( $next_url, $allowed_domain ) ) {
+						$next_pending[ $index ] = array( 'url' => $next_url, 'hop' => $next_hop );
+					}
+					continue;
+				}
+
+				if ( $code > 0 && $code < 400 ) {
+					$results[ $index ] = $resp;
+				}
+			}
+
+			$pending = $next_pending;
+		}
+
+		return $results;
+	}
+
+	/**
+	 * Use WordPress's bundled Requests multi transport, with a serial WP HTTP
+	 * fallback for older installations where the bundled class is unavailable.
+	 */
+	private function request_multiple( array $urls, $timeout, $deadline ) {
+		$requests = array();
+		$headers  = array(
+			'User-Agent' => 'DsquaredHubConnector/' . DHC_VERSION . ' (plugin-crawl)',
+			'Accept'     => 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+		);
+		$options = array(
+			'timeout'          => max( 1, (int) $timeout ),
+			'connect_timeout'  => min( 5, max( 1, (int) $timeout ) ),
+			'follow_redirects' => false,
+			'redirects'        => 0,
+			'verify'           => apply_filters( 'dhc_crawl_sslverify', true ),
+			// Read one byte beyond the parser cap so extraction can distinguish a
+			// complete 400 KB response from a truncated response without buffering
+			// the remainder of an unexpectedly large page.
+			'max_bytes'        => self::MAX_HTML_PARSE_BYTES + 1,
+		);
+
+		foreach ( $urls as $index => $url ) {
+			$requests[ $index ] = array(
+				'url'     => $url,
+				'type'    => 'GET',
+				'headers' => $headers,
+				'data'    => array(),
+				'options' => $options,
+			);
+		}
+
+		$responses = null;
+		try {
+			// Requests can only provide true bounded concurrency through cURL multi.
+			// Its socket fallback may serialize the whole group and exceed the tick
+			// deadline, so hosts without cURL use the deadline-aware WP HTTP fallback.
+			if ( function_exists( 'curl_multi_init' ) && class_exists( '\\WpOrg\\Requests\\Requests' ) ) {
+				$responses = \WpOrg\Requests\Requests::request_multiple( $requests );
+			} elseif ( function_exists( 'curl_multi_init' ) && class_exists( 'Requests' ) ) {
+				$responses = \Requests::request_multiple( $requests );
+			}
+		} catch ( \Throwable $error ) {
+			$responses = null;
+		}
+
+		if ( is_array( $responses ) ) {
+			$normalised = array();
+			foreach ( $urls as $index => $url ) {
+				$response = $responses[ $index ] ?? null;
+				if ( is_object( $response ) && isset( $response->status_code ) ) {
+					$normalised[ $index ] = array(
+						'dhc_code'    => (int) $response->status_code,
+						'dhc_headers' => $response->headers ?? array(),
+						'dhc_body'    => isset( $response->body ) ? (string) $response->body : '',
+					);
+				} else {
+					$normalised[ $index ] = null;
+				}
+			}
+			return $normalised;
+		}
+
+		// Compatibility fallback remains bounded by the same worker batch and
+		// timeout. It is deliberately not used when Requests multi is available.
+		$fallback = array();
+		foreach ( $urls as $index => $url ) {
+			if ( microtime( true ) >= $deadline ) {
+				$fallback[ $index ] = null;
+				continue;
+			}
+			$remaining = max( 1, (int) ceil( $deadline - microtime( true ) ) );
+			$response = wp_remote_get( $url, array(
+				'timeout'     => min( max( 1, (int) $timeout ), $remaining ),
+				'redirection' => 0,
+				'sslverify'   => apply_filters( 'dhc_crawl_sslverify', true ),
+				'limit_response_size' => self::MAX_HTML_PARSE_BYTES + 1,
+				'headers'     => $headers,
+			) );
+			$fallback[ $index ] = is_wp_error( $response ) ? null : $response;
+		}
+		return $fallback;
+	}
+
+	private function response_code( $response ) {
+		return isset( $response['dhc_code'] )
+			? (int) $response['dhc_code']
+			: (int) wp_remote_retrieve_response_code( $response );
+	}
+
+	private function response_header( $response, $name ) {
+		if ( ! isset( $response['dhc_headers'] ) ) {
+			return (string) wp_remote_retrieve_header( $response, $name );
+		}
+		$headers = $response['dhc_headers'];
+		if ( is_array( $headers ) ) {
+			return isset( $headers[ $name ] ) ? (string) $headers[ $name ] : '';
+		}
+		if ( $headers instanceof \ArrayAccess && isset( $headers[ $name ] ) ) {
+			return (string) $headers[ $name ];
+		}
+		if ( is_object( $headers ) && method_exists( $headers, 'getValues' ) ) {
+			$values = $headers->getValues( $name );
+			return is_array( $values ) ? implode( ', ', $values ) : (string) $values;
+		}
+		return '';
+	}
+
+	private function response_body( $response ) {
+		return isset( $response['dhc_body'] )
+			? (string) $response['dhc_body']
+			: (string) wp_remote_retrieve_body( $response );
+	}
+
 	/**
 	 * Fetch a URL, following redirects with per-hop domain validation.
 	 *
@@ -720,8 +981,7 @@ class DHC_Crawler {
 	 * - Every redirect destination is validated against $allowed_domain before
 	 *   following. A redirect to a different host is rejected (returns null).
 	 * - Maximum MAX_REDIRECTS hops before giving up.
-	 * - Redirects that carry userinfo (user:pass@host) are rejected by PHP's
-	 *   parse_url() returning a host without auth, plus the domain check.
+	 * - Redirects that carry userinfo (user:pass@host) are rejected explicitly.
 	 *
 	 * SSRF note: we trust $allowed_domain because it was set by the Hub admin
 	 * (not derived from user input). Private-IP SSRF via open redirects is
@@ -740,7 +1000,7 @@ class DHC_Crawler {
 
 		// Only HTTP(S) schemes.
 		$scheme = strtolower( (string) parse_url( $url, PHP_URL_SCHEME ) );
-		if ( ! in_array( $scheme, array( 'http', 'https' ), true ) ) {
+		if ( ! in_array( $scheme, array( 'http', 'https' ), true ) || $this->url_has_credentials( $url ) ) {
 			return null;
 		}
 
@@ -748,6 +1008,7 @@ class DHC_Crawler {
 			'timeout'     => self::PAGE_TIMEOUT,
 			'redirection' => 0, // Handle redirects manually for per-hop domain checks.
 			'sslverify'   => apply_filters( 'dhc_crawl_sslverify', true ),
+			'limit_response_size' => self::MAX_HTML_PARSE_BYTES + 1,
 			'headers'     => array(
 				'User-Agent' => 'DsquaredHubConnector/' . DHC_VERSION . ' (plugin-crawl)',
 				'Accept'     => 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
@@ -758,10 +1019,10 @@ class DHC_Crawler {
 			return null;
 		}
 
-		$code = (int) wp_remote_retrieve_response_code( $resp );
+		$code = $this->response_code( $resp );
 
 		if ( $code >= 300 && $code < 400 ) {
-			$location = trim( (string) wp_remote_retrieve_header( $resp, 'location' ) );
+			$location = trim( $this->response_header( $resp, 'location' ) );
 			if ( empty( $location ) ) {
 				return null;
 			}
@@ -773,7 +1034,7 @@ class DHC_Crawler {
 
 			// Reject non-HTTP destination schemes.
 			$dest_scheme = strtolower( (string) parse_url( $abs_location, PHP_URL_SCHEME ) );
-			if ( ! in_array( $dest_scheme, array( 'http', 'https' ), true ) ) {
+			if ( ! in_array( $dest_scheme, array( 'http', 'https' ), true ) || $this->url_has_credentials( $abs_location ) ) {
 				return null;
 			}
 
@@ -813,26 +1074,167 @@ class DHC_Crawler {
 			return null;
 		}
 
-		$content_type = strtolower( (string) wp_remote_retrieve_header( $resp, 'content-type' ) );
+		return $this->crawl_page_response( $url, $resp, $allowed_domain );
+	}
+
+	/** Parse one already-fetched response into the canonical page payload. */
+	private function crawl_page_response( $url, $resp, $allowed_domain ) {
+
+		$content_type = strtolower( $this->response_header( $resp, 'content-type' ) );
 		if ( strpos( $content_type, 'text/html' ) === false &&
 			 strpos( $content_type, 'application/xhtml' ) === false ) {
 			return null;
 		}
 
-		$html = (string) wp_remote_retrieve_body( $resp );
+		$html = $this->response_body( $resp );
 
 		// Challenge page detection — CF/WP Engine Bot Fight Mode.
 		if ( $this->is_challenge_page( $html ) ) {
 			return null;
 		}
 
-		// Cap HTML for parsing (prevents memory exhaustion on huge pages).
-		if ( strlen( $html ) > 400 * 1024 ) {
-			$html = substr( $html, 0, 400 * 1024 );
+		$schema_evidence = $this->extract_schema_evidence( $html );
+
+		// Cap HTML for the remaining page parser (prevents memory exhaustion on
+		// huge pages). Schema extraction records an explicit failure rather than a
+		// false absence when this input limit prevents a complete measurement.
+		if ( strlen( $html ) > self::MAX_HTML_PARSE_BYTES ) {
+			$html = substr( $html, 0, self::MAX_HTML_PARSE_BYTES );
 		}
 
-		$status_code = (int) wp_remote_retrieve_response_code( $resp );
-		return $this->parse_html( $url, $html, $status_code, $allowed_domain );
+		$status_code = $this->response_code( $resp );
+		return $this->parse_html( $url, $html, $status_code, $allowed_domain, $schema_evidence );
+	}
+
+	/**
+	 * Extract bounded JSON-LD presence/type evidence from connector-fetched HTML.
+	 * No raw markup is persisted. A negative result is emitted only when the full
+	 * bounded input was measured successfully; ambiguous inputs return a failure.
+	 */
+	private function extract_schema_evidence( $html ) {
+		$input_limited = strlen( $html ) > self::MAX_HTML_PARSE_BYTES;
+		$bounded_html  = $input_limited ? substr( $html, 0, self::MAX_HTML_PARSE_BYTES ) : $html;
+		$open_count    = 0;
+		$blocks        = array();
+
+		if ( preg_match_all( '/<script\b([^>]*)>/is', $bounded_html, $open_tags, PREG_SET_ORDER ) ) {
+			foreach ( $open_tags as $tag ) {
+				if ( $this->is_jsonld_script_attributes( $tag[1] ?? '' ) ) {
+					$open_count++;
+				}
+			}
+		}
+
+		if ( preg_match_all( '/<script\b([^>]*)>(.*?)<\/script\s*>/is', $bounded_html, $scripts, PREG_SET_ORDER ) ) {
+			foreach ( $scripts as $script ) {
+				if ( $this->is_jsonld_script_attributes( $script[1] ?? '' ) ) {
+					$blocks[] = isset( $script[2] ) ? (string) $script[2] : '';
+				}
+			}
+		}
+
+		if ( $open_count > count( $blocks ) ) {
+			return $this->schema_extraction_failure( 'unterminated_script_tag' );
+		}
+		if ( $open_count > self::MAX_SCHEMA_SCRIPTS ) {
+			return $this->schema_extraction_failure( 'script_limit_exceeded' );
+		}
+		if ( 0 === $open_count ) {
+			return $input_limited
+				? $this->schema_extraction_failure( 'input_limit_exceeded' )
+				: $this->schema_measurement( false, array(), 0 );
+		}
+
+		$types      = array();
+		$node_count = 0;
+		foreach ( $blocks as $block ) {
+			if ( strlen( $block ) > self::MAX_SCHEMA_SCRIPT_BYTES ) {
+				return $this->schema_extraction_failure( 'script_size_limit_exceeded' );
+			}
+			$decoded = json_decode( trim( $block ), true );
+			if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $decoded ) ) {
+				return $this->schema_extraction_failure( 'json_parse_error' );
+			}
+			if ( ! $this->collect_schema_types( $decoded, $types, $node_count ) ) {
+				return $this->schema_extraction_failure( 'extraction_failed' );
+			}
+		}
+
+		return $this->schema_measurement( true, $types, $open_count );
+	}
+
+	private function is_jsonld_script_attributes( $attributes ) {
+		if ( ! preg_match( '/\btype\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))/i', $attributes, $match ) ) {
+			return false;
+		}
+		$type = '';
+		foreach ( array_slice( $match, 1 ) as $candidate ) {
+			if ( '' !== (string) $candidate ) {
+				$type = strtolower( trim( (string) $candidate ) );
+				break;
+			}
+		}
+		$type = trim( explode( ';', $type )[0] );
+		return 'application/ld+json' === $type;
+	}
+
+	private function collect_schema_types( $value, array &$types, &$node_count ) {
+		if ( count( $types ) >= self::MAX_SCHEMA_TYPES ) {
+			return true;
+		}
+		$node_count++;
+		if ( $node_count > self::MAX_SCHEMA_NODES ) {
+			return false;
+		}
+		if ( ! is_array( $value ) ) {
+			return true;
+		}
+
+		if ( array_key_exists( '@type', $value ) ) {
+			$raw_types = is_array( $value['@type'] ) ? $value['@type'] : array( $value['@type'] );
+			foreach ( $raw_types as $type ) {
+				if ( ! is_string( $type ) ) {
+					continue;
+				}
+				$type = trim( (string) $type );
+				if ( preg_match( '/^[A-Za-z][A-Za-z0-9_.:-]{0,79}$/', $type ) && ! in_array( $type, $types, true ) ) {
+					$types[] = $type;
+					if ( count( $types ) >= self::MAX_SCHEMA_TYPES ) {
+						return true;
+					}
+				}
+			}
+		}
+
+		foreach ( $value as $child ) {
+			if ( is_array( $child ) && ! $this->collect_schema_types( $child, $types, $node_count ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private function schema_measurement( $present, array $types, $script_count ) {
+		return array(
+			'version'    => 1,
+			'status'     => 'measured',
+			'present'    => (bool) $present,
+			'types'      => $present ? array_slice( array_values( array_unique( $types ) ), 0, self::MAX_SCHEMA_TYPES ) : array(),
+			'provenance' => 'connector_html',
+			'scriptCount' => $present ? min( self::MAX_SCHEMA_SCRIPTS, max( 0, (int) $script_count ) ) : 0,
+		);
+	}
+
+	private function schema_extraction_failure( $reason ) {
+		return array(
+			'version'    => 1,
+			'status'     => 'extraction_failed',
+			'present'    => null,
+			'types'      => array(),
+			'provenance' => 'connector_html',
+			'scriptCount' => 0,
+			'reason'     => $reason,
+		);
 	}
 
 	/**
@@ -902,7 +1304,7 @@ class DHC_Crawler {
 	 *
 	 * The '_raw_links' key contains internal URLs for BFS — removed before upload.
 	 */
-	private function parse_html( $url, $html, $status_code, $allowed_domain ) {
+	private function parse_html( $url, $html, $status_code, $allowed_domain, array $schema_evidence ) {
 		$page = array(
 			'url'             => $url,
 			'statusCode'      => $status_code,
@@ -918,6 +1320,7 @@ class DHC_Crawler {
 			'internalLinks'   => array(),
 			'externalLinks'   => array(),
 			'images'          => array(),
+			'schemaEvidence'  => $schema_evidence,
 			'issues'          => array( 'critical' => 0, 'warnings' => 0, 'notices' => 0 ),
 			'_raw_links'      => array(),
 		);
@@ -1151,13 +1554,18 @@ class DHC_Crawler {
 		return $this->norm_host( $host ) === $this->norm_host( $allowed_domain );
 	}
 
+	private function url_has_credentials( $url ) {
+		$parts = parse_url( $url );
+		return is_array( $parts ) && ( isset( $parts['user'] ) || isset( $parts['pass'] ) );
+	}
+
 	private function is_crawlable_url( $url ) {
 		$skip = array(
 			'#/wp-admin#', '#/wp-login\.php#', '#/xmlrpc\.php#',
 			'#/feed/?$#', '#/tag/#', '#/author/#', '#\?replytocom=#',
 			'#\.xml$#', '#\.pdf$#', '#\.docx?$#', '#\.xlsx?$#',
-			'#\.(jpg|jpeg|png|gif|webp|svg|ico|bmp)([?#]|$)#i',
-			'#\.(css|js|woff2?|ttf|eot|otf|mp4|mp3|zip|tar|gz)([?#]|$)#i',
+			'#\.(jpg|jpeg|png|gif|webp|svg|ico|bmp)([?\#]|$)#i',
+			'#\.(css|js|woff2?|ttf|eot|otf|mp4|mp3|zip|tar|gz)([?\#]|$)#i',
 		);
 		foreach ( $skip as $pattern ) {
 			if ( preg_match( $pattern, $url ) ) {
