@@ -284,6 +284,21 @@ class DHC_Crawler {
 		} );
 	}
 
+	/**
+	 * Queue an immediate, bounded poll after an authenticated Hub wake request.
+	 *
+	 * The wake is only an acceleration hint: the durable five-minute cron and
+	 * heartbeat hooks remain the recovery path. Repeated requests are idempotent
+	 * because WordPress stores at most one pending continuation event, and the
+	 * normal crawler lock still prevents overlapping workers.
+	 *
+	 * @return bool True when an immediate event is queued or already pending.
+	 */
+	public function schedule_immediate_poll() {
+		$this->schedule_continuation();
+		return $this->continuation_scheduled || (bool) wp_next_scheduled( self::CONTINUE_HOOK );
+	}
+
 	// ── Main cron tick ───────────────────────────────────────────────────────────
 
 	/**

@@ -67,11 +67,22 @@ test('active crawls chain bounded background batches without waiting five minute
   assert.doesNotMatch(crawler, /register_rest_route[^\n]+crawler_continue/);
 });
 
-test('release metadata identifies the fast renewable crawler version', () => {
+test('release metadata identifies the immediate-wake crawler version', () => {
   const readme = fs.readFileSync(path.join(root, 'readme.txt'), 'utf8');
-  assert.match(plugin, /Version:\s+1\.17\.8/);
-  assert.match(plugin, /define\( 'DHC_VERSION', '1\.17\.8' \)/);
-  assert.match(readme, /Stable tag:\s+1\.17\.8/);
+  assert.match(plugin, /Version:\s+1\.17\.9/);
+  assert.match(plugin, /define\( 'DHC_VERSION', '1\.17\.9' \)/);
+  assert.match(readme, /Stable tag:\s+1\.17\.9/);
+});
+
+test('authenticated wake hints queue the bounded outbound worker and keep cron recovery', () => {
+  const rest = fs.readFileSync(path.join(root, 'includes/class-dhc-rest.php'), 'utf8');
+  assert.match(rest, /register_rest_route\( self::NAMESPACE, '\/crawler\/wake'/);
+  assert.match(rest, /'permission_callback'\s*=>\s*array\( 'DHC_API_Key', 'authenticate_request' \)/);
+  assert.match(rest, /DHC_Crawler::init\(\)->schedule_immediate_poll\(\)/);
+  assert.match(crawler, /public function schedule_immediate_poll\(\)/);
+  assert.match(crawler, /\$this->schedule_continuation\(\)/);
+  assert.match(crawler, /wp_next_scheduled\( self::CONTINUE_HOOK \)/);
+  assert.match(crawler, /wp_schedule_event\( time\(\), self::INTERVAL_NAME, self::CRON_HOOK/);
 });
 
 test('crawler stores bounded diagnostics without response bodies or credentials', () => {

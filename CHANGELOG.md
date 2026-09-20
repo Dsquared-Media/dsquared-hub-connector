@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.9
+
+- Add an authenticated, idempotent crawler wake endpoint so newly queued Hub audits can start immediately while retaining the five-minute recovery poll.
+
 ## 1.17.8
 
 - Continue active Hub audit crawls in bounded background batches instead of waiting five minutes between every 20 pages.
