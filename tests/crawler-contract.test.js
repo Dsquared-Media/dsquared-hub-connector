@@ -68,11 +68,11 @@ test('active crawls chain bounded background batches without waiting five minute
   assert.doesNotMatch(crawler, /register_rest_route[^\n]+crawler_continue/);
 });
 
-test('release metadata identifies the concurrent crawler version', () => {
+test('release metadata identifies the current connector version', () => {
   const readme = fs.readFileSync(path.join(root, 'readme.txt'), 'utf8');
-  assert.match(plugin, /Version:\s+1\.17\.10/);
-  assert.match(plugin, /define\( 'DHC_VERSION', '1\.17\.10' \)/);
-  assert.match(readme, /Stable tag:\s+1\.17\.10/);
+  assert.match(plugin, /Version:\s+1\.18\.0/);
+  assert.match(plugin, /define\( 'DHC_VERSION', '1\.18\.0' \)/);
+  assert.match(readme, /Stable tag:\s+1\.18\.0/);
 });
 
 test('authenticated wake hints queue the bounded outbound worker and keep cron recovery', () => {
