@@ -22,6 +22,25 @@ if ( ! defined( 'ABSPATH' ) ) {
 class DHC_Posts {
 
     /**
+     * Replace only the text inside the first explicit stored H1. A callback is
+     * required here: reviewed headings may legitimately contain strings such
+     * as "$1", which preg_replace would otherwise interpret as a backreference.
+     * The surrounding post content is returned byte-for-byte unchanged.
+     */
+    public static function replace_first_heading( $content, $h1, &$replacement_count = 0 ) {
+        $escaped = esc_html( $h1 );
+        return preg_replace_callback(
+            '/(<h1\b[^>]*>).*?(<\/h1>)/is',
+            function ( $matches ) use ( $escaped ) {
+                return $matches[1] . $escaped . $matches[2];
+            },
+            (string) $content,
+            1,
+            $replacement_count
+        );
+    }
+
+    /**
      * Publish one reviewed page heading without replacing the rest of the
      * page body. WordPress themes normally render post_title as the page H1;
      * when the stored block content contains an explicit H1, its text is
@@ -43,7 +62,8 @@ class DHC_Posts {
         $h1            = trim( wp_strip_all_tags( (string) $request->get_param( 'h1' ) ) );
         $revision_note = sanitize_text_field( (string) $request->get_param( 'revision_note' ) );
 
-        if ( empty( $h1 ) || strlen( $h1 ) > 250 ) {
+        $heading_length = function_exists( 'mb_strlen' ) ? mb_strlen( $h1, 'UTF-8' ) : strlen( $h1 );
+        if ( empty( $h1 ) || $heading_length > 250 ) {
             return new WP_Error( 'dhc_invalid_heading', 'h1 must contain 1–250 characters.', array( 'status' => 400 ) );
         }
         if ( ! $post_id && ! empty( $url ) ) {
@@ -63,23 +83,32 @@ class DHC_Posts {
         }
 
         $content = (string) $post->post_content;
-        $escaped = esc_html( $h1 );
-        $updated_content = preg_replace(
-            '/(<h1\b[^>]*>).*?(<\/h1>)/is',
-            '$1' . $escaped . '$2',
-            $content,
-            1,
-            $replacement_count
-        );
+        $updated_content = self::replace_first_heading( $content, $h1, $replacement_count );
         if ( null === $updated_content ) {
             return new WP_Error( 'dhc_heading_update_failed', 'The stored page content could not be read safely.', array( 'status' => 500 ) );
         }
 
         $payload = array( 'ID' => (int) $post_id, 'post_title' => $h1 );
         if ( $replacement_count > 0 ) {
-            $payload['post_content'] = wp_kses_post( $updated_content );
+            // The reviewed heading is escaped before insertion. Do not pass the
+            // complete existing body through wp_kses_post: that could strip
+            // unrelated iframe, SVG, custom HTML, or page-builder markup.
+            $payload['post_content'] = $updated_content;
         }
-        $result = wp_update_post( $payload, true );
+        // API-key requests do not have an interactive WordPress user. Temporarily
+        // remove save-time KSES filters so the unchanged surrounding body is not
+        // rewritten; the only new bytes are the escaped heading above.
+        $restore_kses = function_exists( 'kses_remove_filters' ) && function_exists( 'kses_init_filters' );
+        if ( $restore_kses ) {
+            kses_remove_filters();
+        }
+        try {
+            $result = wp_update_post( $payload, true );
+        } finally {
+            if ( $restore_kses ) {
+                kses_init_filters();
+            }
+        }
         if ( is_wp_error( $result ) ) {
             return $result;
         }
