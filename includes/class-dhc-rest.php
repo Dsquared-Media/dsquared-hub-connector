@@ -172,6 +172,22 @@ class DHC_REST {
             ),
         ) );
 
+        // ── Reviewed Page Heading Update (v1.18) ───────────────
+        // Updates the WordPress page title and, when present in stored block
+        // content, the first explicit H1. Core creates a revision so the
+        // change can be rolled back in wp-admin.
+        register_rest_route( self::NAMESPACE, '/posts/heading', array(
+            'methods'             => 'POST',
+            'callback'            => array( 'DHC_Posts', 'handle_heading_update' ),
+            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
+            'args'                => array(
+                'post_id'      => array( 'required' => false, 'type' => 'integer' ),
+                'url'          => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'esc_url_raw' ),
+                'h1'           => array( 'required' => true, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+                'revision_note'=> array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+            ),
+        ) );
+
         // ── Bulk SEO Meta (v1.10) ──────────────────────────────
         // Up to 100 meta_title + meta_description updates per call.
         // Mirrors the bulk alt-text pattern. One HTTP trip for a

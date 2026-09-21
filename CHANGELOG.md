@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.18.0
+
+- Add authenticated `/posts/heading` publishing for reviewed H1 recommendations.
+- Preserve page content except for the first explicit stored H1 and create a normal WordPress revision.
+
 ## 1.17.10
 
 - Fetch same-site audit pages in deterministic three-request batches with a 27-second page-fetch budget.
