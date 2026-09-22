@@ -618,7 +618,6 @@ class DHC_Admin {
             wp_send_json_error( esc_html__( 'Unauthorized', 'dsquared-hub-connector' ) );
         }
 
-        $api_key = sanitize_text_field( wp_unslash( $_POST['api_key'] ?? '' ) );
         $modules = isset( $_POST['modules'] ) ? (array) wp_unslash( $_POST['modules'] ) : array();
 
         $all_module_keys = array( 'auto_post', 'schema', 'seo_meta', 'site_health', 'ai_discovery', 'content_decay', 'form_capture' );
@@ -627,19 +626,7 @@ class DHC_Admin {
             $clean_modules[ $mod ] = ! empty( $modules[ $mod ] );
         }
 
-        $old_key = get_option( 'dhc_api_key', '' );
-        update_option( 'dhc_api_key', $api_key );
         update_option( 'dhc_modules', $clean_modules );
-        DHC_API_Key::clear_cache();
-
-        // When the connector key changes, clear the telemetry token so it gets
-        // re-provisioned. The old token is bound to the previous key's scope.
-        if ( $api_key !== $old_key ) {
-            delete_option( 'dhc_telemetry_token' );
-            delete_option( DHC_Heartbeat::TELEMETRY_RETRY_OPTION );
-            wp_clear_scheduled_hook( DHC_Heartbeat::TELEMETRY_PROVISION_HOOK );
-            DHC_Heartbeat::ensure_telemetry_token_scheduled();
-        }
 
         wp_send_json_success( esc_html__( 'Settings saved.', 'dsquared-hub-connector' ) );
     }
@@ -658,9 +645,18 @@ class DHC_Admin {
             wp_send_json_error( esc_html__( 'Please enter an API key.', 'dsquared-hub-connector' ) );
         }
 
+        DHC_API_Key::clear_cache();
+
+        // Validate the candidate against this installation's home URL before
+        // persisting it. A key assigned to another client must leave the
+        // existing working connection untouched.
+        $result = DHC_API_Key::validate( $api_key, true );
+        if ( empty( $result['valid'] ) ) {
+            wp_send_json_error( $result['message'] ?? esc_html__( 'Invalid API key for this website.', 'dsquared-hub-connector' ) );
+        }
+
         $old_key = get_option( 'dhc_api_key', '' );
         update_option( 'dhc_api_key', $api_key );
-        DHC_API_Key::clear_cache();
 
         // Clear stale telemetry token when the key is replaced.
         if ( $api_key !== $old_key ) {
@@ -670,21 +666,15 @@ class DHC_Admin {
             DHC_Heartbeat::ensure_telemetry_token_scheduled();
         }
 
-        $result = DHC_API_Key::validate( $api_key, true );
-
-        if ( ! empty( $result['valid'] ) ) {
-            wp_send_json_success( array(
-                'message' => sprintf(
-                    /* translators: %s: tier label */
-                    esc_html__( 'API key validated successfully! Connected as %s.', 'dsquared-hub-connector' ),
-                    DHC_API_Key::get_tier_label( $result['tier'] ?? '' )
-                ),
-                'tier'    => $result['tier'] ?? '',
-                'expires' => $result['expires'] ?? '',
-            ) );
-        } else {
-            wp_send_json_error( $result['message'] ?? esc_html__( 'Invalid API key.', 'dsquared-hub-connector' ) );
-        }
+        wp_send_json_success( array(
+            'message' => sprintf(
+                /* translators: %s: tier label */
+                esc_html__( 'API key validated successfully! Connected as %s.', 'dsquared-hub-connector' ),
+                DHC_API_Key::get_tier_label( $result['tier'] ?? '' )
+            ),
+            'tier'    => $result['tier'] ?? '',
+            'expires' => $result['expires'] ?? '',
+        ) );
     }
 
     /**

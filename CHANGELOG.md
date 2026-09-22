@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.18.1
+
+- Bind key setup to the current WordPress home URL and reject keys for other Hub websites.
+- Preserve the previous key when validation fails, and refresh the connection cache on upgrade.
+
 ## 1.18.0
 
 - Add authenticated `/posts/heading` publishing for reviewed H1 recommendations.

@@ -25,6 +25,7 @@ const cwvJs         = fs.readFileSync(path.join(root, 'assets/dhc-site-health.js
 const pluginMain    = fs.readFileSync(path.join(root, 'dsquared-hub-connector.php'), 'utf8');
 const heartbeat     = fs.readFileSync(path.join(root, 'includes/class-dhc-heartbeat.php'), 'utf8');
 const admin         = fs.readFileSync(path.join(root, 'includes/class-dhc-admin.php'), 'utf8');
+const apiKey        = fs.readFileSync(path.join(root, 'includes/class-dhc-api-key.php'), 'utf8');
 const uninstall     = fs.readFileSync(path.join(root, 'uninstall.php'), 'utf8');
 const readme        = fs.readFileSync(path.join(root, 'readme.txt'), 'utf8');
 const changelog     = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
@@ -220,20 +221,20 @@ test('plugin: version-change block provisions dhc_telemetry_token for existing i
 });
 
 // ---------------------------------------------------------------------------
-// Package readiness: DHC_VERSION is 1.18.0
+// Package readiness: DHC_VERSION is 1.18.1
 // ---------------------------------------------------------------------------
 
-test('plugin: DHC_VERSION constant is 1.18.0', () => {
+test('plugin: DHC_VERSION constant is 1.18.1', () => {
     assert.ok(
-        pluginMain.includes("define( 'DHC_VERSION', '1.18.0' )"),
-        "DHC_VERSION must be '1.18.0'"
+        pluginMain.includes("define( 'DHC_VERSION', '1.18.1' )"),
+        "DHC_VERSION must be '1.18.1'"
     );
 });
 
-test('plugin: file header Version comment is 1.18.0', () => {
+test('plugin: file header Version comment is 1.18.1', () => {
     assert.ok(
-        pluginMain.includes('* Version:           1.18.0'),
-        'Plugin file header comment must declare Version: 1.18.0'
+        pluginMain.includes('* Version:           1.18.1'),
+        'Plugin file header comment must declare Version: 1.18.1'
     );
 });
 
@@ -250,10 +251,10 @@ test('plugin: DHC_VERSION constant and header comment agree', () => {
     );
 });
 
-test('plugin: WordPress stable tag and changelog agree with 1.18.0', () => {
-    assert.match(readme, /^Stable tag:\s*1\.18\.0$/m);
-    assert.match(readme, /^= 1\.18\.0 =$/m);
-    assert.match(changelog, /^## 1\.18\.0$/m);
+test('plugin: WordPress stable tag and changelog agree with 1.18.1', () => {
+    assert.match(readme, /^Stable tag:\s*1\.18\.1$/m);
+    assert.match(readme, /^= 1\.18\.1 =$/m);
+    assert.match(changelog, /^## 1\.18\.1$/m);
 });
 
 // ---------------------------------------------------------------------------
@@ -287,13 +288,23 @@ test('telemetry provisioning: failed requests use capped persistent backoff', ()
 
 test('telemetry provisioning: key rotation clears stale token, retry state, and pending event', () => {
     const rotationBlocks = admin.match(/if \( \$api_key !== \$old_key \) \{[\s\S]*?\n\s*\}/g) || [];
-    assert.equal(rotationBlocks.length, 2, 'both settings-save paths must handle key rotation');
+    assert.equal(rotationBlocks.length, 1, 'only verified key setup may rotate the connector credential');
     for (const block of rotationBlocks) {
         assert.match(block, /delete_option\( 'dhc_telemetry_token' \)/);
         assert.match(block, /delete_option\( DHC_Heartbeat::TELEMETRY_RETRY_OPTION \)/);
         assert.match(block, /wp_clear_scheduled_hook\( DHC_Heartbeat::TELEMETRY_PROVISION_HOOK \)/);
         assert.match(block, /DHC_Heartbeat::ensure_telemetry_token_scheduled\(\)/);
     }
+});
+
+test('connector setup validates the candidate against its own URL before saving it', () => {
+    assert.match(apiKey, /'X-DHC-Site-Url'\s*=>\s*home_url\( '\/' \)/);
+    assert.match(apiKey, /isset\( \$body\['tier'\], \$body\['site_id'\] \)/);
+    const validation = admin.slice(admin.indexOf('public static function ajax_validate_key()'), admin.indexOf('public static function ajax_', admin.indexOf('public static function ajax_validate_key()') + 1));
+    assert.ok(validation.indexOf('DHC_API_Key::validate( $api_key, true )') < validation.indexOf("update_option( 'dhc_api_key', $api_key )"));
+    assert.match(validation, /if \( empty\( \$result\['valid'\] \) \) \{[\s\S]*?wp_send_json_error/);
+    const settings = admin.slice(admin.indexOf('public static function ajax_save_settings()'), admin.indexOf('public static function ajax_validate_key()'));
+    assert.doesNotMatch(settings, /update_option\( 'dhc_api_key'/);
 });
 
 test('plugin uninstall removes telemetry credential, retry state, and all pending retries', () => {

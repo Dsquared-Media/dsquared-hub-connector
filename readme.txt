@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.18.0
+Stable tag: 1.18.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,10 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.18.1 =
+* Verify the connector key against this WordPress site's URL before saving it.
+* Keep the existing connection when a pasted key belongs to another site or the Hub cannot verify it.
 
 = 1.18.0 =
 * Adds an authenticated reviewed page-heading endpoint for Hub H1 recommendations.

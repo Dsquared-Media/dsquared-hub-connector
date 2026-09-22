@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class DHC_API_Key {
 
     /** @var string Transient key for caching subscription data */
-    const CACHE_KEY = 'dhc_subscription_cache';
+    const CACHE_KEY = 'dhc_subscription_cache_site_bound_v1';
 
     /** @var int Cache duration in seconds (12 hours) */
     const CACHE_DURATION = 43200;
@@ -49,7 +49,9 @@ class DHC_API_Key {
         // Check cache first (unless forced)
         if ( ! $force ) {
             $cached = get_transient( self::CACHE_KEY );
-            if ( false !== $cached && is_array( $cached ) ) {
+            if ( false !== $cached && is_array( $cached )
+                && ( $cached['site_url'] ?? '' ) === home_url( '/' )
+                && ( $cached['key_hash'] ?? '' ) === hash( 'sha256', $api_key ) ) {
                 return $cached;
             }
         }
@@ -68,6 +70,7 @@ class DHC_API_Key {
             array(
                 'headers' => array(
                     'X-DHC-API-Key' => $api_key,
+                    'X-DHC-Site-Url' => home_url( '/' ),
                     'Content-Type'  => 'application/json',
                 ),
                 'timeout' => 10,
@@ -79,13 +82,15 @@ class DHC_API_Key {
             $code = wp_remote_retrieve_response_code( $response );
             $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
-            if ( 200 === $code && ! empty( $body ) && isset( $body['tier'] ) ) {
+            if ( 200 === $code && ! empty( $body ) && isset( $body['tier'], $body['site_id'] ) ) {
                 $subscription = array(
                     'valid'   => true,
                     'tier'    => sanitize_text_field( $body['tier'] ?? 'starter' ),
                     'expires' => sanitize_text_field( $body['expires'] ?? '' ),
                     'modules' => self::get_tier_modules( $body['tier'] ?? 'starter' ),
                     'site_id' => sanitize_text_field( $body['site_id'] ?? '' ),
+                    'site_url' => home_url( '/' ),
+                    'key_hash' => hash( 'sha256', $api_key ),
                 );
 
                 if ( ! empty( $subscription['expires'] ) ) {
@@ -116,38 +121,12 @@ class DHC_API_Key {
             }
         }
 
-        // Hub API unreachable or endpoint not yet deployed
-        // Fall back to local validation: key format is valid, check cached subscription
-        $cached = get_option( 'dhc_subscription', array() );
-        if ( ! empty( $cached['status'] ) && 'active' === $cached['status'] ) {
-            return array(
-                'valid'         => true,
-                'tier'          => $cached['tier'] ?? 'pro',
-                'expires'       => $cached['expires'] ?? '',
-                'modules'       => self::get_tier_modules( $cached['tier'] ?? 'pro' ),
-                'cached'        => true,
-                'network_error' => true,
-            );
-        }
-
-        // No cached data — key format is valid, grant access with default tier
-        // This allows the plugin to work before the Hub backend API is fully deployed
-        $subscription = array(
-            'valid'   => true,
-            'tier'    => 'pro',
-            'expires' => '',
-            'modules' => self::get_tier_modules( 'pro' ),
-            'local'   => true,
+        // A key cannot be accepted on its shape alone. A network failure may
+        // be temporary, but it must not make another site's key look valid.
+        return array(
+            'valid'   => false,
+            'message' => esc_html__( 'Could not verify this key for this WordPress URL. Check the Hub connection and try again; the saved key has not changed.', 'dsquared-hub-connector' ),
         );
-
-        set_transient( self::CACHE_KEY, $subscription, self::CACHE_DURATION );
-        update_option( 'dhc_subscription', array(
-            'status'  => 'active',
-            'tier'    => 'pro',
-            'expires' => '',
-        ) );
-
-        return $subscription;
     }
 
     /**
@@ -241,6 +220,7 @@ class DHC_API_Key {
      */
     public static function clear_cache() {
         delete_transient( self::CACHE_KEY );
+        delete_transient( 'dhc_subscription_cache' );
     }
 
     /**
