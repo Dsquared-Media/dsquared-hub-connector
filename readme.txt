@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.18.2
+Stable tag: 1.18.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,9 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.18.3 =
+* Keep the primary Brand Profile schema on the homepage, map marketing labels such as “Indoor Sports Club” to a valid Schema.org type, and defer to reviewed Hub schema when present.
 
 = 1.18.2 =
 * Keep URL-targeted homepage schema on the homepage; reject unresolved interior pages and mismatched post IDs instead of placing location facts on the wrong page.

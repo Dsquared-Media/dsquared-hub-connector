@@ -70,9 +70,9 @@ test('active crawls chain bounded background batches without waiting five minute
 
 test('release metadata identifies the current connector version', () => {
   const readme = fs.readFileSync(path.join(root, 'readme.txt'), 'utf8');
-  assert.match(plugin, /Version:\s+1\.18\.2/);
-  assert.match(plugin, /define\( 'DHC_VERSION', '1\.18\.2' \)/);
-  assert.match(readme, /Stable tag:\s+1\.18\.2/);
+  assert.match(plugin, /Version:\s+1\.18\.3/);
+  assert.match(plugin, /define\( 'DHC_VERSION', '1\.18\.3' \)/);
+  assert.match(readme, /Stable tag:\s+1\.18\.3/);
 });
 
 test('authenticated wake hints queue the bounded outbound worker and keep cron recovery', () => {

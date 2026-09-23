@@ -538,9 +538,13 @@ class DHC_AI_Discovery {
         $profile = get_option( 'dhc_business_profile', array() );
         if ( empty( $profile ) ) return;
 
-        // LocalBusiness schema
-        $schema = $this->build_local_business_schema( $profile );
-        echo '<script type="application/ld+json">' . wp_json_encode( $schema, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT ) . '</script>' . "\n";
+        // This profile describes the primary location. Do not copy its address,
+        // hours, or category onto every page (including other locations). An
+        // approved Hub homepage schema takes precedence over this legacy block.
+        if ( is_front_page() && ! $this->has_reviewed_home_business_schema() ) {
+            $schema = $this->build_local_business_schema( $profile );
+            echo '<script type="application/ld+json">' . wp_json_encode( $schema, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT ) . '</script>' . "\n";
+        }
 
         // FAQ schema (if FAQs exist and on front page or relevant pages)
         $faqs = $profile['faqs'] ?? array();
@@ -560,7 +564,7 @@ class DHC_AI_Discovery {
     private function build_local_business_schema( $profile ) {
         $schema = array(
             '@context' => 'https://schema.org',
-            '@type'    => $profile['business_type'] ?? 'LocalBusiness',
+            '@type'    => $this->schema_type_for_profile( $profile ),
             'name'     => $profile['business_name'] ?? get_bloginfo( 'name' ),
             'url'      => home_url( '/' ),
             'description' => $profile['description'] ?? get_bloginfo( 'description' ),
@@ -602,6 +606,73 @@ class DHC_AI_Discovery {
         }
 
         return $schema;
+    }
+
+    /** A marketing category is not necessarily a schema.org @type. */
+    private function schema_type_for_profile( $profile ) {
+        $label = trim( (string) ( $profile['business_type'] ?? '' ) );
+        if ( 0 === strcasecmp( $label, 'Indoor Sports Club' ) ) return 'SportsClub';
+        $label = preg_replace( '#^https?://(?:www\.)?schema\.org/#i', '', $label );
+        $known = array_merge( array( 'Organization' ), $this->local_business_schema_types() );
+        foreach ( $known as $type ) {
+            if ( 0 === strcasecmp( $label, $type ) ) return $type;
+        }
+        return ! empty( $profile['address'] ) ? 'LocalBusiness' : 'Organization';
+    }
+
+    private function local_business_schema_types() {
+        return array( 'LocalBusiness', 'Restaurant', 'Store',
+            'AutoRepair', 'Dentist', 'MedicalBusiness', 'Plumber', 'HousePainter',
+            'Electrician', 'HomeAndConstructionBusiness', 'ProfessionalService',
+            'HealthAndBeautyBusiness', 'BeautySalon', 'DaySpa', 'YogaStudio',
+            'SportsClub', 'SportsActivityLocation' );
+    }
+
+    /** Let reviewed, page-targeted Hub business schema replace the legacy profile block. */
+    private function has_reviewed_home_business_schema() {
+        $global = get_option( 'dhc_global_schemas', array() );
+        if ( is_array( $global ) ) {
+            foreach ( $global as $entry ) {
+                if ( ! is_array( $entry ) || empty( $entry['markup'] ) ) continue;
+                if ( ! empty( $entry['url'] ) ) {
+                    $target_host = strtolower( (string) wp_parse_url( $entry['url'], PHP_URL_HOST ) );
+                    $home_host = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+                    if ( '' === $target_host || preg_replace( '/^www\./', '', $target_host ) !== preg_replace( '/^www\./', '', $home_host ) ) continue;
+                    $target = trim( (string) wp_parse_url( $entry['url'], PHP_URL_PATH ), '/' );
+                    $home = trim( (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH ), '/' );
+                    if ( $target !== $home ) continue;
+                }
+                if ( $this->contains_business_entity( $entry['markup'] ) ) return true;
+            }
+        }
+        $post_id = is_singular() ? get_queried_object_id() : 0;
+        if ( $post_id ) {
+            $post_schemas = get_post_meta( $post_id, '_dhc_schema_markup', true );
+            if ( is_array( $post_schemas ) ) {
+                foreach ( $post_schemas as $entry ) {
+                    if ( is_array( $entry ) && ! empty( $entry['markup'] ) && $this->contains_business_entity( $entry['markup'] ) ) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function contains_business_entity( $markup ) {
+        if ( is_string( $markup ) ) $markup = json_decode( $markup, true );
+        if ( ! is_array( $markup ) ) return false;
+        $nodes = isset( $markup['@graph'] ) && is_array( $markup['@graph'] ) ? $markup['@graph'] : array( $markup );
+        foreach ( $nodes as $node ) {
+            if ( ! is_array( $node ) ) continue;
+            $types = isset( $node['@type'] ) ? (array) $node['@type'] : array();
+            foreach ( $types as $type ) {
+                if ( ! is_string( $type ) ) continue;
+                $type = preg_replace( '#^https?://(?:www\.)?schema\.org/#i', '', $type );
+                foreach ( $this->local_business_schema_types() as $known ) {
+                    if ( 0 === strcasecmp( $type, $known ) ) return true;
+                }
+            }
+        }
+        return false;
     }
 
     private function build_faq_schema( $faqs ) {
