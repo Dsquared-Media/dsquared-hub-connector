@@ -53,6 +53,18 @@ class DHC_Schema {
             );
         }
 
+        if ( ! empty( $url ) ) {
+            $target_host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+            $site_host   = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+            if ( '' === $target_host || preg_replace( '/^www\./', '', $target_host ) !== preg_replace( '/^www\./', '', $site_host ) ) {
+                return new WP_Error(
+                    'dhc_schema_target_site_mismatch',
+                    'The target URL does not belong to this WordPress site. No schema was published.',
+                    array( 'status' => 400 )
+                );
+            }
+        }
+
         // If schema is a string, try to parse it as JSON
         if ( is_string( $schema ) ) {
             $parsed = json_decode( $schema, true );
@@ -67,9 +79,41 @@ class DHC_Schema {
             }
         }
 
-        // Resolve post ID from URL if not provided (WooCommerce/host-aware).
-        if ( empty( $post_id ) && ! empty( $url ) ) {
-            $post_id = DHC_Core::resolve_post_id_from_url( $url );
+        // A supplied post ID must identify the exact requested page. Never
+        // trust it as an escape hatch around URL resolution or page scoping.
+        if ( ! empty( $url ) ) {
+            $resolved_post_id = DHC_Core::resolve_post_id_from_url( $url );
+            if ( ! empty( $post_id ) && (int) $post_id !== (int) $resolved_post_id ) {
+                return new WP_Error(
+                    'dhc_schema_target_mismatch',
+                    'The post ID does not match the target page URL. No schema was published.',
+                    array( 'status' => 409 )
+                );
+            }
+            $post_id = $resolved_post_id;
+        }
+
+        // A location/page URL must never silently become a global schema.
+        // Only an omitted URL or the site's homepage may use the historic
+        // site-wide storage path. A miss on an interior page is actionable.
+        if ( ! $post_id && ! empty( $url ) ) {
+            $target_path = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
+            $home_path   = trim( (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH ), '/' );
+            if ( $target_path !== $home_path ) {
+                return new WP_Error(
+                    'dhc_schema_target_not_found',
+                    'The target page could not be resolved in WordPress. No schema was published.',
+                    array( 'status' => 404 )
+                );
+            }
+        }
+
+        if ( $post_id && ! get_post( (int) $post_id ) ) {
+            return new WP_Error(
+                'dhc_schema_post_not_found',
+                'The requested WordPress post no longer exists. No schema was published.',
+                array( 'status' => 404 )
+            );
         }
 
         // Store schema
@@ -99,7 +143,8 @@ class DHC_Schema {
                 'message'     => 'Schema markup saved for post #' . $post_id . '.',
             ), 200 );
         } else {
-            // Global/site-wide schema (e.g., Organization, LocalBusiness)
+            // A URL-scoped homepage schema renders only on the homepage.
+            // Legacy URL-less schemas retain their explicit site-wide scope.
             $global = get_option( self::GLOBAL_OPTION, array() );
 
             $global[ $schema_type ] = array(
@@ -115,9 +160,9 @@ class DHC_Schema {
 
             return new WP_REST_Response( array(
                 'success'     => true,
-                'scope'       => 'global',
+                'scope'       => ! empty( $url ) ? 'homepage' : 'global',
                 'schema_type' => $schema_type,
-                'message'     => 'Global schema markup saved.',
+                'message'     => ! empty( $url ) ? 'Homepage schema markup saved.' : 'Global schema markup saved.',
             ), 200 );
         }
     }
@@ -126,11 +171,12 @@ class DHC_Schema {
      * Output schema markup in wp_head
      */
     public static function output_schema() {
-        // Output global schemas on every page
+        // Output explicitly URL-less schemas site-wide. A reviewed homepage
+        // location schema must not spill onto another location's page.
         $global_schemas = get_option( self::GLOBAL_OPTION, array() );
         if ( ! empty( $global_schemas ) ) {
             foreach ( $global_schemas as $type => $data ) {
-                if ( ! empty( $data['markup'] ) ) {
+                if ( ! empty( $data['markup'] ) && self::global_entry_matches_page( $data ) ) {
                     self::render_json_ld( $data['markup'], 'global-' . $type );
                 }
             }
@@ -149,6 +195,28 @@ class DHC_Schema {
                 }
             }
         }
+    }
+
+    /** Preserve legacy global entries while honoring explicit target URLs. */
+    private static function global_entry_matches_page( $data ) {
+        if ( empty( $data['url'] ) ) {
+            return true;
+        }
+        $target_host = strtolower( (string) wp_parse_url( $data['url'], PHP_URL_HOST ) );
+        $site_host   = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+        if ( '' === $target_host || preg_replace( '/^www\./', '', $target_host ) !== preg_replace( '/^www\./', '', $site_host ) ) {
+            return false;
+        }
+        $target_path = trim( (string) wp_parse_url( $data['url'], PHP_URL_PATH ), '/' );
+        $home_path   = trim( (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH ), '/' );
+        if ( $target_path === $home_path ) {
+            return is_front_page();
+        }
+        if ( ! is_singular() ) {
+            return false;
+        }
+        $current_path = trim( (string) wp_parse_url( get_permalink( get_the_ID() ), PHP_URL_PATH ), '/' );
+        return $target_path === $current_path;
     }
 
     /**

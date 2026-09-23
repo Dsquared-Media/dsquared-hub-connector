@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.2
+
+- Scope URL-targeted homepage schema to the homepage, reject unresolved interior pages, and verify supplied post IDs match the target URL so one location's facts cannot be injected on another page.
+
 ## 1.18.1
 
 - Bind key setup to the current WordPress home URL and reject keys for other Hub websites.
