@@ -1322,6 +1322,10 @@ class DHC_Crawler {
 			'images'          => array(),
 			'schemaEvidence'  => $schema_evidence,
 			'issues'          => array( 'critical' => 0, 'warnings' => 0, 'notices' => 0 ),
+			// Bounded, presence-only schema evidence. The Hub may use this when a
+			// direct validator fetch is challenged, but it cannot claim validity
+			// because no JSON-LD bodies or page HTML leave WordPress.
+			'schemaEvidence'  => $this->extract_schema_evidence( $html ),
 			'_raw_links'      => array(),
 		);
 
@@ -1433,6 +1437,240 @@ class DHC_Crawler {
 		if ( $page['noindex'] )                  { $page['issues']['notices']++; }
 
 		return $page;
+	}
+
+	/**
+	 * Measure structured-data presence and normalized types without retaining
+	 * scripts or full HTML. Any malformed JSON-LD makes the result unknown so a
+	 * partial parse can never be presented as a clean, complete measurement.
+	 */
+	private function extract_schema_evidence( $html ) {
+		$types            = array();
+		$script_count     = 0;
+		$offset           = 0;
+		$inspected_bytes  = 0;
+		$max_html_bytes   = 2000000;
+		$max_script_bytes = 262144;
+		$max_total_bytes  = 524288;
+		$failure_reason   = '';
+
+		// Fail closed before tokenizing an unexpectedly large document. The crawl
+		// can still persist the page's ordinary SEO fields, but Schema remains
+		// explicitly unmeasured instead of risking an unbounded parse.
+		if ( strlen( $html ) > $max_html_bytes ) {
+			return $this->schema_extraction_failed( 'input_limit_exceeded', 0 );
+		}
+
+		// Tokenize opening tags with a bounded byte scanner. A regex ending at the
+		// first `>` is not HTML-aware: `data-note=">"` used to truncate a valid
+		// script tag and turn real JSON-LD into a measured absence. The scanner
+		// respects quoted attributes, skips comments and jumps over script bodies.
+		// The document-size guard above keeps this linear pass bounded.
+		$html_length = strlen( $html );
+		while ( $offset < $html_length ) {
+			$open_start = strpos( $html, '<', $offset );
+			if ( false === $open_start ) break;
+
+			if ( 0 === substr_compare( $html, '<!--', $open_start, 4 ) ) {
+				$comment_end = strpos( $html, '-->', $open_start + 4 );
+				if ( false === $comment_end ) {
+					// An unfinished comment can hide candidate markup. If its bounded
+					// tail mentions JSON-LD, absence is not a defensible measurement.
+					$tail = substr( $html, $open_start, min( 4096, $html_length - $open_start ) );
+					if ( false !== stripos( $tail, 'ld+json' ) || false !== stripos( $tail, '<script' ) ) {
+						return $this->schema_extraction_failed( 'unterminated_script_tag', $script_count );
+					}
+					break;
+				}
+				$offset = $comment_end + 3;
+				continue;
+			}
+
+			$name_start = $open_start + 1;
+			while ( $name_start < $html_length && ctype_space( $html[ $name_start ] ) ) $name_start++;
+			if ( $name_start >= $html_length || in_array( $html[ $name_start ], array( '/', '!', '?' ), true ) ) {
+				$offset = $open_start + 1;
+				continue;
+			}
+			$name_end = $name_start;
+			while ( $name_end < $html_length && preg_match( '/[A-Za-z0-9:-]/', $html[ $name_end ] ) ) $name_end++;
+			$tag_name = strtolower( substr( $html, $name_start, $name_end - $name_start ) );
+			if ( '' === $tag_name ) {
+				$offset = $open_start + 1;
+				continue;
+			}
+
+			$quote = '';
+			$tag_end = false;
+			for ( $i = $name_end; $i < $html_length; $i++ ) {
+				$char = $html[ $i ];
+				if ( '' !== $quote ) {
+					if ( $char === $quote ) $quote = '';
+					continue;
+				}
+				if ( '"' === $char || "'" === $char ) {
+					$quote = $char;
+					continue;
+				}
+				if ( '>' === $char ) {
+					$tag_end = $i;
+					break;
+				}
+			}
+			if ( false === $tag_end ) {
+				if ( 'script' === $tag_name || false !== stripos( substr( $html, $open_start, min( 4096, $html_length - $open_start ) ), 'ld+json' ) ) {
+					return $this->schema_extraction_failed( 'unterminated_script_tag', $script_count );
+				}
+				break;
+			}
+			$offset = $tag_end + 1;
+			if ( 'script' !== $tag_name ) continue;
+
+			$attrs      = substr( $html, $name_end, $tag_end - $name_end );
+			$body_start = $tag_end + 1;
+			$close_start = stripos( $html, '</script', $body_start );
+			$close_end   = false === $close_start ? false : strpos( $html, '>', $close_start );
+			$type_attr = $this->parse_script_type_attribute( $attrs );
+			if ( $type_attr['malformed'] ) {
+				return $this->schema_extraction_failed( 'ambiguous_script_type', $script_count );
+			}
+			$type_value = $type_attr['found'] ? $type_attr['value'] : null;
+			$looks_jsonld = false;
+			if ( null !== $type_value ) {
+				$mime = strtolower( trim( explode( ';', html_entity_decode( $type_value, ENT_QUOTES | ENT_HTML5, 'UTF-8' ), 2 )[0] ) );
+				$looks_jsonld = 'application/ld+json' === $mime;
+			}
+			if ( false === $close_start || false === $close_end ) {
+				if ( $looks_jsonld ) return $this->schema_extraction_failed( 'unterminated_jsonld', $script_count + 1 );
+				break;
+			}
+			$offset = $close_end + 1;
+			if ( ! $looks_jsonld ) continue;
+
+			$script_count++;
+			if ( $script_count > 20 ) return $this->schema_extraction_failed( 'script_limit_exceeded', 20 );
+			$body_length = $close_start - $body_start;
+			if ( $body_length > $max_script_bytes || $inspected_bytes + $body_length > $max_total_bytes ) {
+				return $this->schema_extraction_failed( 'script_size_limit_exceeded', $script_count );
+			}
+			$inspected_bytes += $body_length;
+			$body = substr( $html, $body_start, $body_length );
+			$decoded = json_decode( html_entity_decode( trim( $body ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ), true );
+			if ( JSON_ERROR_NONE !== json_last_error() ) {
+				$failure_reason = 'json_parse_error';
+				break;
+			}
+			$this->collect_schema_types( $decoded, $types );
+		}
+
+		if ( $failure_reason ) return $this->schema_extraction_failed( $failure_reason, $script_count );
+
+		// Microdata is presence/type evidence too. itemtype URLs are reduced to
+		// their final fragment/path component and subjected to the same cap.
+		preg_match_all( '/\bitemtype\s*=\s*["\']([^"\']+)["\']/si', $html, $microdata );
+		foreach ( array_slice( $microdata[1] ?? array(), 0, 20 ) as $raw_types ) {
+			foreach ( preg_split( '/\s+/', trim( $raw_types ) ) as $raw_type ) {
+				$type = preg_replace( '/^.*[\/#]/', '', $raw_type );
+				$this->add_schema_type( $type, $types );
+			}
+		}
+
+		$present = $script_count > 0 || ! empty( $microdata[1] );
+		return array(
+			'version'     => 1,
+			'status'      => 'measured',
+			'present'     => $present,
+			'types'       => array_values( array_slice( $types, 0, 20 ) ),
+			'provenance'  => 'connector_html',
+			'scriptCount' => min( 20, $script_count ),
+		);
+	}
+
+	/**
+	 * Parse only real attributes from an already bounded, quote-aware opening
+	 * tag. Text such as data-note="type=application/ld+json" is a value of a
+	 * different attribute and must never be promoted to the script MIME type.
+	 */
+	private function parse_script_type_attribute( $attrs ) {
+		$length = strlen( $attrs );
+		$offset = 0;
+		$found = false;
+		$value = null;
+		$malformed = false;
+		while ( $offset < $length ) {
+			while ( $offset < $length && ( ctype_space( $attrs[ $offset ] ) || '/' === $attrs[ $offset ] ) ) $offset++;
+			if ( $offset >= $length ) break;
+			$name_start = $offset;
+			while ( $offset < $length && preg_match( '/[A-Za-z0-9_:-]/', $attrs[ $offset ] ) ) $offset++;
+			if ( $offset === $name_start ) {
+				$offset++;
+				continue;
+			}
+			$name = strtolower( substr( $attrs, $name_start, $offset - $name_start ) );
+			while ( $offset < $length && ctype_space( $attrs[ $offset ] ) ) $offset++;
+			if ( $offset >= $length || '=' !== $attrs[ $offset ] ) {
+				if ( 'type' === $name ) $malformed = true;
+				continue;
+			}
+			$offset++;
+			while ( $offset < $length && ctype_space( $attrs[ $offset ] ) ) $offset++;
+			$attr_value = '';
+			if ( $offset < $length && ( '"' === $attrs[ $offset ] || "'" === $attrs[ $offset ] ) ) {
+				$quote = $attrs[ $offset++ ];
+				$value_start = $offset;
+				while ( $offset < $length && $attrs[ $offset ] !== $quote ) $offset++;
+				if ( $offset >= $length ) {
+					if ( 'type' === $name ) $malformed = true;
+					break;
+				}
+				$attr_value = substr( $attrs, $value_start, $offset - $value_start );
+				$offset++;
+			} else {
+				$value_start = $offset;
+				while ( $offset < $length && ! ctype_space( $attrs[ $offset ] ) ) $offset++;
+				$attr_value = substr( $attrs, $value_start, $offset - $value_start );
+			}
+			if ( 'type' === $name ) {
+				if ( $found || '' === trim( $attr_value ) ) $malformed = true;
+				$found = true;
+				$value = $attr_value;
+			}
+		}
+		return array( 'found' => $found, 'value' => $value, 'malformed' => $malformed );
+	}
+
+	private function schema_extraction_failed( $reason, $script_count ) {
+		$allowed = array( 'input_limit_exceeded', 'script_limit_exceeded', 'script_size_limit_exceeded', 'unterminated_jsonld', 'unterminated_script_tag', 'ambiguous_script_type', 'json_parse_error' );
+		return array(
+			'version'     => 1,
+			'status'      => 'extraction_failed',
+			'present'     => null,
+			'types'       => array(),
+			'provenance'  => 'connector_html',
+			'scriptCount' => max( 0, min( 20, (int) $script_count ) ),
+			'reason'      => in_array( $reason, $allowed, true ) ? $reason : 'extraction_failed',
+		);
+	}
+
+	private function collect_schema_types( $value, array &$types ) {
+		if ( count( $types ) >= 20 || ! is_array( $value ) ) return;
+		if ( isset( $value['@type'] ) ) {
+			foreach ( (array) $value['@type'] as $type ) $this->add_schema_type( $type, $types );
+		}
+		foreach ( $value as $child ) {
+			if ( is_array( $child ) ) $this->collect_schema_types( $child, $types );
+			if ( count( $types ) >= 20 ) break;
+		}
+	}
+
+	private function add_schema_type( $value, array &$types ) {
+		if ( count( $types ) >= 20 || ! is_scalar( $value ) ) return;
+		$type = sanitize_text_field( (string) $value );
+		$type = preg_replace( '/^.*[\/#]/', '', $type );
+		$type = substr( trim( $type ), 0, 80 );
+		if ( $type && preg_match( '/^[A-Za-z][A-Za-z0-9_.:-]{0,79}$/', $type ) && ! in_array( $type, $types, true ) ) {
+			$types[] = $type;
+		}
 	}
 
 	// ── Hub API calls ─────────────────────────────────────────────────────────────
