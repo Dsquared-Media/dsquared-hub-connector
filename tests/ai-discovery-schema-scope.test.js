@@ -11,12 +11,18 @@ test('legacy Brand Profile schema uses SportsClub only on the homepage and yield
     define('ABSPATH', '/tmp/');
     $front = false;
     $reviewed = array();
+    $canonical = '';
     function add_action() {}
     function add_filter() {}
     function is_front_page() { global $front; return $front; }
     function is_page() { return false; }
-    function is_singular() { return false; }
-    function get_queried_object_id() { return 0; }
+    function is_singular() { global $front; return $front; }
+    function get_queried_object_id() { global $front; return $front ? 42 : 0; }
+    function get_post_meta($post_id, $key, $single = false) {
+      global $canonical;
+      if ($key === '_d2_custom_schema') return $canonical;
+      return array();
+    }
     function home_url($path = '/') { return 'https://theclubnj.com' . $path; }
     function get_bloginfo($key) { return 'The Club'; }
     function wp_parse_url($url, $component = -1) { return parse_url($url, $component); }
@@ -44,19 +50,27 @@ test('legacy Brand Profile schema uses SportsClub only on the homepage and yield
     $reviewed = array('Dentist' => array('url' => 'https://theclubnj.com/',
       'markup' => array('@context' => 'https://schema.org', '@type' => 'Dentist', 'name' => 'The Club')));
     ob_start(); $discovery->inject_ai_schema(); $reviewed_subtype = ob_get_clean();
+    $reviewed = array();
+    $canonical = json_encode(array('@context' => 'https://schema.org', '@type' => 'SportsClub', 'name' => 'The Club'));
+    ob_start(); $discovery->inject_ai_schema(); $canonical_reviewed = ob_get_clean();
+    $canonical = '{invalid json';
+    ob_start(); $discovery->inject_ai_schema(); $invalid_canonical = ob_get_clean();
     $type_method = new ReflectionMethod('DHC_AI_Discovery', 'schema_type_for_profile');
     $other = $type_method->invoke($discovery, array('business_type' => 'Painting Services', 'address' => '123 Main St'));
     $dentist = $type_method->invoke($discovery, array('business_type' => 'https://schema.org/Dentist', 'address' => '123 Main St'));
     echo json_encode(array('interior' => $interior, 'homepage' => $homepage, 'approved' => $approved,
       'organization_only' => $organization_only, 'reviewed_subtype' => $reviewed_subtype,
+      'canonical_reviewed' => $canonical_reviewed, 'invalid_canonical' => $invalid_canonical,
       'other' => $other, 'dentist' => $dentist));
   `;
   const result = spawnSync('php', ['-r', script], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
-  const { interior, homepage, approved, organization_only, reviewed_subtype, other, dentist } = JSON.parse(result.stdout);
+  const { interior, homepage, approved, organization_only, reviewed_subtype, canonical_reviewed, invalid_canonical, other, dentist } = JSON.parse(result.stdout);
   assert.equal(interior, '');
   assert.equal(approved, '');
   assert.equal(reviewed_subtype, '');
+  assert.equal(canonical_reviewed, '');
+  assert.match(invalid_canonical, /"@type": "SportsClub"/);
   assert.equal(other, 'LocalBusiness');
   assert.equal(dentist, 'Dentist');
   assert.match(organization_only, /"@type": "SportsClub"/);

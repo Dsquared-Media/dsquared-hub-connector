@@ -645,8 +645,13 @@ class DHC_AI_Discovery {
                 if ( $this->contains_business_entity( $entry['markup'] ) ) return true;
             }
         }
-        $post_id = is_singular() ? get_queried_object_id() : 0;
+        $post_id = ( is_front_page() || is_singular() ) ? get_queried_object_id() : 0;
         if ( $post_id ) {
+            // v1.19 stores API, raw, and guided schema in one canonical field.
+            // Invalid JSON must not suppress the safe Brand Profile fallback.
+            $canonical = get_post_meta( $post_id, '_d2_custom_schema', true );
+            if ( ( is_string( $canonical ) || is_array( $canonical ) ) && $this->contains_business_entity( $canonical ) ) return true;
+
             $post_schemas = get_post_meta( $post_id, '_dhc_schema_markup', true );
             if ( is_array( $post_schemas ) ) {
                 foreach ( $post_schemas as $entry ) {
