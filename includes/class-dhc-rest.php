@@ -72,6 +72,7 @@ class DHC_REST {
             'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
             'args'                => array(
                 'post_id'     => array( 'required' => false, 'type' => 'integer' ),
+                'page_url'    => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'esc_url_raw' ),
                 'url'         => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'esc_url_raw' ),
                 'schema'      => array( 'required' => true,  'type' => array( 'object', 'array', 'string' ) ),
                 'schema_type' => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),

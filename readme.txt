@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.18.0
+Stable tag: 1.19.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,11 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.19.0 =
+* Add a per-page Schema (JSON-LD) editor with Guided and Raw JSON modes.
+* Add exact-page Hub schema publishing through the authenticated connector API.
+* Show schema coverage and source on the Pages list.
 
 = 1.18.0 =
 * Adds an authenticated reviewed page-heading endpoint for Hub H1 recommendations.

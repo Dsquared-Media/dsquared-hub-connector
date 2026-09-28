@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.19.0
+
+- Added one canonical per-page JSON-LD field shared by the guided editor, raw editor, and Hub API.
+- Added exact URL matching with clear 404 responses for unmatched schema pushes.
+- Added schema source and validation status to the Pages list.
+
 ## 1.18.0
 
 - Add authenticated `/posts/heading` publishing for reviewed H1 recommendations.
