@@ -142,11 +142,35 @@ class DHC_Schema {
      * Output schema markup in wp_head
      */
     public static function output_schema() {
+        // Preserve legacy global entries while honoring any explicit page URL.
+        $global_schemas = get_option( self::GLOBAL_OPTION, array() );
+        if ( is_array( $global_schemas ) ) {
+            foreach ( $global_schemas as $type => $data ) {
+                if ( ! empty( $data['markup'] ) && self::global_entry_matches_page( $data ) ) {
+                    self::render_json_ld( $data['markup'], 'global-' . sanitize_key( $type ) );
+                }
+            }
+        }
+
         if ( ! is_singular( array( 'page', 'post' ) ) ) return;
         $raw = self::canonical_value( get_the_ID() );
         $checked = self::validate_json( $raw );
         if ( ! $checked['valid'] || null === $checked['value'] ) return;
         self::render_json_ld( $checked['value'], 'page-schema' );
+    }
+
+    /** Preserve historic global schemas without leaking URL-scoped data across pages. */
+    private static function global_entry_matches_page( $data ) {
+        if ( empty( $data['url'] ) ) return true;
+        $target_host = strtolower( (string) wp_parse_url( $data['url'], PHP_URL_HOST ) );
+        $site_host = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+        if ( '' === $target_host || preg_replace( '/^www\\./', '', $target_host ) !== preg_replace( '/^www\\./', '', $site_host ) ) return false;
+        $target_path = trim( (string) wp_parse_url( $data['url'], PHP_URL_PATH ), '/' );
+        $home_path = trim( (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH ), '/' );
+        if ( $target_path === $home_path ) return is_front_page();
+        if ( ! is_singular() ) return false;
+        $current_path = trim( (string) wp_parse_url( get_permalink( get_the_ID() ), PHP_URL_PATH ), '/' );
+        return $target_path === $current_path;
     }
 
     /**

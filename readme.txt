@@ -70,6 +70,16 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 * Add exact-page Hub schema publishing through the authenticated connector API.
 * Show schema coverage and source on the Pages list.
 
+= 1.18.3 =
+* Keep the primary Brand Profile schema on the homepage, map marketing labels such as “Indoor Sports Club” to a valid Schema.org type, and defer to reviewed Hub schema when present.
+
+= 1.18.2 =
+* Keep URL-targeted homepage schema on the homepage; reject unresolved interior pages and mismatched post IDs instead of placing location facts on the wrong page.
+
+= 1.18.1 =
+* Verify the connector key against this WordPress site's URL before saving it.
+* Keep the existing connection when a pasted key belongs to another site or the Hub cannot verify it.
+
 = 1.18.0 =
 * Adds an authenticated reviewed page-heading endpoint for Hub H1 recommendations.
 * Creates a normal WordPress revision and updates the first explicit stored H1 when present.

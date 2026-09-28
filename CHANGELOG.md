@@ -6,6 +6,20 @@
 - Added exact URL matching with clear 404 responses for unmatched schema pushes.
 - Added schema source and validation status to the Pages list.
 
+## 1.18.3
+
+- Stop injecting the primary Brand Profile's business schema on every page. Map “Indoor Sports Club” to the valid `SportsClub` type and fall back to a valid business or organization type for other marketing labels.
+- Let reviewed Hub homepage business schema replace the legacy auto-generated block, avoiding duplicate or conflicting location facts.
+
+## 1.18.2
+
+- Scope URL-targeted homepage schema to the homepage, reject unresolved interior pages, and verify supplied post IDs match the target URL so one location's facts cannot be injected on another page.
+
+## 1.18.1
+
+- Bind key setup to the current WordPress home URL and reject keys for other Hub websites.
+- Preserve the previous key when validation fails, and refresh the connection cache on upgrade.
+
 ## 1.18.0
 
 - Add authenticated `/posts/heading` publishing for reviewed H1 recommendations.

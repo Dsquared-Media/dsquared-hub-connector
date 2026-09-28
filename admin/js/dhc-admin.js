@@ -76,7 +76,6 @@
         $.post(dhcAdmin.ajaxUrl, {
             action: 'dhc_save_settings',
             nonce: dhcAdmin.nonce,
-            api_key: $('#dhc-api-key').val().trim(),
             modules: modules
         }, function(response) {
             btn.prop('disabled', false).text('Save Module Settings');
