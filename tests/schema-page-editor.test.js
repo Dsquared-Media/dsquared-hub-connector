@@ -18,11 +18,31 @@ test('schema editor, front-end output, and authenticated page_url route share on
   assert.match(source, />Raw JSON</);
   assert.match(source, /openingHoursSpecification/);
   assert.match(source, /Latitude and longitude must be entered together/);
+  assert.match(source, /name="dhc_guided_dirty" value="0"/);
+  assert.match(source, /if \( empty\( \$_POST\['dhc_guided_dirty'\] \) \) return/);
+  assert.match(source, /data-add-same-as/);
+  assert.match(source, /data-remove-row/);
+  assert.match(source, /dhc_guided\[same_as\]\[/);
+  assert.match(source, /t==='Organization'/);
   assert.match(source, /manage_pages_custom_column/);
   assert.match(source, /type="application\/ld\+json"/);
   const route = rest.slice(rest.indexOf("'/schema'"), rest.indexOf('// ── SEO Meta Sync'));
   assert.match(route, /DHC_API_Key', 'authenticate_request/);
   assert.match(route, /'page_url'/);
+});
+
+test('guided mode only accepts schemas it can round-trip without data loss', () => {
+  const script = [
+    "define('ABSPATH', __DIR__);",
+    `require ${JSON.stringify(classFile)};`,
+    '$method=new ReflectionMethod("DHC_Schema","guided_schema_is_lossless");',
+    '$article=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"Article","headline"=>"Title","author"=>array("@type"=>"Person","name"=>"Jane")));',
+    '$organization=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"Organization","name"=>"Example","telephone"=>"555-1212"));',
+    'echo json_encode(array("article"=>$article,"organization"=>$organization));'
+  ].join(' ');
+  const result = JSON.parse(execFileSync('php', ['-r', script], { encoding: 'utf8' }));
+  assert.equal(result.article, false);
+  assert.equal(result.organization, true);
 });
 
 test('JSON validation and REST URL matching reject invalid or unmatched page data', () => {

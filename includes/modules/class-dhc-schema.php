@@ -175,8 +175,40 @@ class DHC_Schema {
         return array( 'LocalBusiness', 'SportsActivityLocation', 'Organization', 'Article', 'FAQPage', 'Service', 'Other' );
     }
 
+    private static function keys_supported( $value, $allowed ) {
+        return is_array( $value ) && ! array_diff( array_keys( $value ), $allowed );
+    }
+
+    /** Return false when a raw/API schema contains facts Guided mode cannot preserve. */
+    private static function guided_schema_is_lossless( $value ) {
+        if ( ! is_array( $value ) || isset( $value['@graph'] ) || empty( $value['@type'] ) ) return false;
+        $type = $value['@type'];
+        $allowed = array( '@context', '@type', 'name', 'description', 'sameAs' );
+        if ( 'Article' === $type ) $allowed = array( '@context', '@type', 'headline', 'description', 'sameAs' );
+        elseif ( 'FAQPage' === $type ) $allowed = array_merge( $allowed, array( 'mainEntity' ) );
+        elseif ( in_array( $type, array( 'LocalBusiness', 'SportsActivityLocation' ), true ) ) $allowed = array_merge( $allowed, array( 'telephone', 'address', 'geo', 'openingHoursSpecification', 'branchOf', 'parentOrganization' ) );
+        elseif ( in_array( $type, array( 'Service', 'Organization' ), true ) ) $allowed = array_merge( $allowed, array( 'telephone' ) );
+        elseif ( 'Organization' !== $type ) return false;
+        if ( ! self::keys_supported( $value, $allowed ) ) return false;
+        if ( isset( $value['address'] ) && ! self::keys_supported( $value['address'], array( '@type', 'streetAddress', 'addressLocality', 'addressRegion', 'postalCode', 'addressCountry' ) ) ) return false;
+        if ( isset( $value['geo'] ) && ! self::keys_supported( $value['geo'], array( '@type', 'latitude', 'longitude' ) ) ) return false;
+        foreach ( array( 'name', 'headline', 'description', 'telephone' ) as $key ) if ( isset( $value[$key] ) && ! is_scalar( $value[$key] ) ) return false;
+        foreach ( isset( $value['sameAs'] ) ? (array) $value['sameAs'] : array() as $url ) if ( ! is_scalar( $url ) ) return false;
+        foreach ( isset( $value['address'] ) ? $value['address'] : array() as $key => $item ) if ( '@type' !== $key && ! is_scalar( $item ) ) return false;
+        foreach ( isset( $value['geo'] ) ? $value['geo'] : array() as $key => $item ) if ( '@type' !== $key && ! is_scalar( $item ) ) return false;
+        foreach ( isset( $value['openingHoursSpecification'] ) ? (array) $value['openingHoursSpecification'] : array() as $row ) {
+            if ( ! self::keys_supported( $row, array( '@type', 'dayOfWeek', 'opens', 'closes' ) ) || ( isset( $row['dayOfWeek'] ) && ! is_scalar( $row['dayOfWeek'] ) ) ) return false;
+        }
+        if ( isset( $value['parentOrganization'] ) ) return false;
+        if ( isset( $value['branchOf'] ) && ( ! self::keys_supported( $value['branchOf'], array( '@type', 'url' ) ) || empty( $value['branchOf']['url'] ) ) ) return false;
+        foreach ( isset( $value['mainEntity'] ) ? (array) $value['mainEntity'] : array() as $item ) {
+            if ( ! self::keys_supported( $item, array( '@type', 'name', 'acceptedAnswer' ) ) || ! isset( $item['acceptedAnswer'] ) || ! self::keys_supported( $item['acceptedAnswer'], array( '@type', 'text' ) ) || ! is_scalar( $item['name'] ) || ! isset( $item['acceptedAnswer']['text'] ) || ! is_scalar( $item['acceptedAnswer']['text'] ) ) return false;
+        }
+        return true;
+    }
+
     private static function guided_from_schema( $value ) {
-        if ( ! is_array( $value ) || isset( $value['@graph'] ) || empty( $value['@type'] ) || ! in_array( $value['@type'], self::supported_types(), true ) ) return false;
+        if ( ! self::guided_schema_is_lossless( $value ) || ! in_array( $value['@type'], self::supported_types(), true ) ) return false;
         $type = $value['@type'];
         $data = array( 'type' => $type, 'name' => isset( $value['name'] ) ? $value['name'] : ( isset( $value['headline'] ) ? $value['headline'] : '' ), 'description' => isset( $value['description'] ) ? $value['description'] : '', 'phone' => isset( $value['telephone'] ) ? $value['telephone'] : '' );
         $address = isset( $value['address'] ) && is_array( $value['address'] ) ? $value['address'] : array();
@@ -203,6 +235,16 @@ class DHC_Schema {
         echo '<label class="dhc-field ' . esc_attr( $class ) . '"><span>' . esc_html( $label ) . '</span><input type="' . esc_attr( $type ) . '"' . ( 'number' === $type ? ' step="any"' : '' ) . ' name="dhc_guided[' . esc_attr( $name ) . ']" value="' . esc_attr( $value ) . '"></label>';
     }
 
+    private static function render_same_as( $urls ) {
+        $urls = array_values( array_filter( (array) $urls ) );
+        if ( empty( $urls ) ) $urls = array( '' );
+        echo '<div class="dhc-repeater dhc-full dhc-common"><strong>Social profile URLs</strong><div data-same-as-list>';
+        foreach ( $urls as $i => $url ) {
+            echo '<div class="dhc-repeat-row dhc-url-row"><input type="url" name="dhc_guided[same_as][' . (int) $i . ']" value="' . esc_attr( $url ) . '" placeholder="https://"><button type="button" class="button-link-delete" data-remove-row aria-label="Remove social profile URL">Remove</button></div>';
+        }
+        echo '</div><button type="button" class="button" data-add-same-as>Add URL</button></div>';
+    }
+
     public static function render_meta_box( $post ) {
         wp_nonce_field( self::NONCE_ACTION, self::NONCE_NAME );
         $raw = self::canonical_value( $post->ID );
@@ -217,13 +259,14 @@ class DHC_Schema {
         $source = get_post_meta( $post->ID, self::SOURCE_META_KEY, true );
         echo '<div class="dhc-schema-editor" data-mode="' . esc_attr( $mode ) . '"><div class="dhc-mode"><button type="button" data-mode="guided">Guided</button><button type="button" data-mode="raw">Raw JSON</button><span class="dhc-source">Source: ' . esc_html( 'api' === $source ? 'Dsquared Hub API' : ( $source ? ucfirst( $source ) : 'Not set' ) ) . '</span></div>';
         echo '<input type="hidden" class="dhc-mode-input" name="dhc_schema_mode" value="' . esc_attr( $mode ) . '">';
+        echo '<input type="hidden" class="dhc-guided-dirty" name="dhc_guided_dirty" value="0">';
         if ( $raw && ! $compatible ) echo '<div class="notice notice-warning inline"><p>This page’s schema does not match the guided editor’s fields. Switch to Raw JSON to edit it directly. Guided mode will not replace it unless you save Guided changes.</p></div>';
         echo '<div class="dhc-guided"><div class="dhc-grid"><label class="dhc-field"><span>Schema type</span><select name="dhc_guided[type]">';
         foreach ( self::supported_types() as $type ) echo '<option value="' . esc_attr( $type ) . '"' . selected( isset( $guided['type'] ) ? $guided['type'] : '', $type, false ) . '>' . esc_html( $type ) . '</option>';
         echo '</select></label>';
         self::field( 'name', 'Name', isset( $guided['name'] ) ? $guided['name'] : '', 'text', 'dhc-common' );
         echo '<label class="dhc-field dhc-full dhc-common"><span>Description</span><textarea name="dhc_guided[description]">' . esc_textarea( isset( $guided['description'] ) ? $guided['description'] : '' ) . '</textarea></label>';
-        self::field( 'phone', 'Phone', isset( $guided['phone'] ) ? $guided['phone'] : '', 'tel', 'dhc-location dhc-service' );
+        self::field( 'phone', 'Phone', isset( $guided['phone'] ) ? $guided['phone'] : '', 'tel', 'dhc-phone' );
         self::field( 'street', 'Street address', isset( $guided['street'] ) ? $guided['street'] : '', 'text', 'dhc-location' );
         self::field( 'city', 'City', isset( $guided['city'] ) ? $guided['city'] : '', 'text', 'dhc-location' );
         self::field( 'region', 'State / region', isset( $guided['region'] ) ? $guided['region'] : '', 'text', 'dhc-location' );
@@ -232,9 +275,9 @@ class DHC_Schema {
         self::field( 'latitude', 'Latitude', isset( $guided['latitude'] ) ? $guided['latitude'] : '', 'number', 'dhc-location dhc-lat' );
         self::field( 'longitude', 'Longitude', isset( $guided['longitude'] ) ? $guided['longitude'] : '', 'number', 'dhc-location dhc-lng' );
         echo '<p class="description dhc-full dhc-location">Use exact coordinates from <a href="https://maps.google.com" target="_blank" rel="noopener noreferrer">Google Maps</a>. Latitude and longitude must be entered together.</p>';
-        echo '<label class="dhc-field dhc-full dhc-common"><span>sameAs URLs <small>(one per line)</small></span><textarea name="dhc_guided[same_as]">' . esc_textarea( implode( "\n", isset( $guided['same_as'] ) ? (array) $guided['same_as'] : array() ) ) . '</textarea></label>';
+        self::render_same_as( isset( $guided['same_as'] ) ? (array) $guided['same_as'] : array() );
         echo '<label class="dhc-field dhc-full dhc-location"><span>branchOf / parent organization</span><select name="dhc_guided[parent_id]"><option value="0">None</option>';
-        $parents = get_posts( array( 'post_type' => array( 'page', 'post' ), 'posts_per_page' => -1, 'post_status' => array( 'publish', 'draft' ), 'meta_key' => self::META_KEY, 'orderby' => 'title', 'order' => 'ASC', 'exclude' => array( $post->ID ) ) );
+        $parents = get_posts( array( 'post_type' => array( 'page', 'post' ), 'posts_per_page' => -1, 'post_status' => array( 'publish', 'draft' ), 'meta_query' => array( 'relation' => 'OR', array( 'key' => self::META_KEY, 'value' => '', 'compare' => '!=' ), array( 'key' => self::LEGACY_META_KEY, 'value' => '', 'compare' => '!=' ) ), 'orderby' => 'title', 'order' => 'ASC', 'exclude' => array( $post->ID ) ) );
         foreach ( $parents as $parent ) echo '<option value="' . (int) $parent->ID . '"' . selected( isset( $guided['parent_id'] ) ? (int) $guided['parent_id'] : 0, $parent->ID, false ) . '>' . esc_html( get_the_title( $parent ) ) . '</option>';
         echo '</select></label></div>';
         self::render_hours( isset( $guided['hours'] ) ? $guided['hours'] : array() );
@@ -251,7 +294,7 @@ class DHC_Schema {
             $day = isset( $row['dayOfWeek'] ) ? $row['dayOfWeek'] : '';
             echo '<div class="dhc-repeat-row"><select name="dhc_guided[hours][' . (int) $i . '][dayOfWeek]"><option value="">Day</option>';
             foreach ( array( 'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday' ) as $choice ) echo '<option' . selected( $day, $choice, false ) . '>' . esc_html( $choice ) . '</option>';
-            echo '</select><input type="time" name="dhc_guided[hours][' . (int) $i . '][opens]" value="' . esc_attr( isset( $row['opens'] ) ? $row['opens'] : '' ) . '"><input type="time" name="dhc_guided[hours][' . (int) $i . '][closes]" value="' . esc_attr( isset( $row['closes'] ) ? $row['closes'] : '' ) . '"></div>';
+            echo '</select><input type="time" name="dhc_guided[hours][' . (int) $i . '][opens]" value="' . esc_attr( isset( $row['opens'] ) ? $row['opens'] : '' ) . '"><input type="time" name="dhc_guided[hours][' . (int) $i . '][closes]" value="' . esc_attr( isset( $row['closes'] ) ? $row['closes'] : '' ) . '"><button type="button" class="button-link-delete" data-remove-row aria-label="Remove opening hours row">Remove</button></div>';
         }
         echo '</div><button type="button" class="button" data-add-hours>Add hours</button></div>';
     }
@@ -259,13 +302,15 @@ class DHC_Schema {
     private static function render_faqs( $faqs ) {
         echo '<div class="dhc-repeater dhc-faq"><strong>Questions and answers</strong><div data-faq-list>';
         if ( empty( $faqs ) ) $faqs = array( array( 'question' => '', 'answer' => '' ) );
-        foreach ( $faqs as $i => $row ) echo '<div class="dhc-repeat-row"><input type="text" name="dhc_guided[faqs][' . (int) $i . '][question]" placeholder="Question" value="' . esc_attr( isset( $row['question'] ) ? $row['question'] : '' ) . '"><textarea name="dhc_guided[faqs][' . (int) $i . '][answer]" placeholder="Answer">' . esc_textarea( isset( $row['answer'] ) ? $row['answer'] : '' ) . '</textarea></div>';
+        foreach ( $faqs as $i => $row ) echo '<div class="dhc-repeat-row"><input type="text" name="dhc_guided[faqs][' . (int) $i . '][question]" placeholder="Question" value="' . esc_attr( isset( $row['question'] ) ? $row['question'] : '' ) . '"><textarea name="dhc_guided[faqs][' . (int) $i . '][answer]" placeholder="Answer">' . esc_textarea( isset( $row['answer'] ) ? $row['answer'] : '' ) . '</textarea><button type="button" class="button-link-delete" data-remove-row aria-label="Remove question and answer">Remove</button></div>';
         echo '</div><button type="button" class="button" data-add-faq>Add question</button></div>';
     }
 
     private static function editor_assets() {
-        echo '<style>.dhc-mode{display:flex;gap:6px;align-items:center;margin-bottom:14px}.dhc-mode button{border:1px solid #dcdcde;background:#fff;padding:7px 12px;border-radius:4px}.dhc-schema-editor[data-mode="guided"] [data-mode="guided"],.dhc-schema-editor[data-mode="raw"] [data-mode="raw"]{background:#1d2327;color:#fff}.dhc-source{margin-left:auto;color:#646970}.dhc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.dhc-field{display:grid;gap:5px}.dhc-field span{font-weight:600}.dhc-field input,.dhc-field select,.dhc-field textarea{width:100%;max-width:none}.dhc-full{grid-column:1/-1}.dhc-raw{display:none}.dhc-schema-editor[data-mode="raw"] .dhc-guided{display:none}.dhc-schema-editor[data-mode="raw"] .dhc-raw{display:block}.dhc-repeater{margin-top:16px}.dhc-repeat-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:7px 0}.dhc-faq .dhc-repeat-row{grid-template-columns:1fr 2fr}.dhc-coordinate-warning{color:#b32d2e;font-weight:600}.dhc-faq{display:none}@media(max-width:782px){.dhc-grid{grid-template-columns:1fr}.dhc-full{grid-column:auto}}</style>';
-        echo '<script>(function(){var root=document.querySelector(".dhc-schema-editor");if(!root)return;var mode=root.querySelector(".dhc-mode-input"),type=root.querySelector("select[name=\\"dhc_guided[type]\\"]"),lat=root.querySelector("input[name=\\"dhc_guided[latitude]\\"]"),lng=root.querySelector("input[name=\\"dhc_guided[longitude]\\"]"),warn=root.querySelector(".dhc-coordinate-warning");function show(){var t=type.value,location=t==="LocalBusiness"||t==="SportsActivityLocation",faq=t==="FAQPage",service=t==="Service";root.querySelectorAll(".dhc-location").forEach(function(n){n.style.display=location?"":"none"});root.querySelectorAll(".dhc-service").forEach(function(n){if(service)n.style.display=""});root.querySelectorAll(".dhc-faq").forEach(function(n){n.style.display=faq?"block":"none"})}function pair(){warn.textContent=((lat.value&&!lng.value)||(!lat.value&&lng.value))?"Latitude and longitude must be entered together.":""}root.querySelectorAll(".dhc-mode button").forEach(function(b){b.addEventListener("click",function(){root.dataset.mode=b.dataset.mode;mode.value=b.dataset.mode})});type.addEventListener("change",show);lat.addEventListener("input",pair);lng.addEventListener("input",pair);root.querySelector("[data-add-hours]").addEventListener("click",function(){var list=root.querySelector("[data-hours-list]"),i=list.children.length,row=list.firstElementChild.cloneNode(true);row.querySelectorAll("input,select").forEach(function(n){n.name=n.name.replace(/hours\\]\\[\\d+/,"hours]["+i);n.value=""});list.appendChild(row)});root.querySelector("[data-add-faq]").addEventListener("click",function(){var list=root.querySelector("[data-faq-list]"),i=list.children.length,row=list.firstElementChild.cloneNode(true);row.querySelectorAll("input,textarea").forEach(function(n){n.name=n.name.replace(/faqs\\]\\[\\d+/,"faqs]["+i);n.value=""});list.appendChild(row)});show();pair()})();</script>';
+        echo <<<'DHC_EDITOR_ASSETS'
+<style>.dhc-mode{display:flex;gap:6px;align-items:center;margin-bottom:14px}.dhc-mode button{border:1px solid #dcdcde;background:#fff;padding:7px 12px;border-radius:4px}.dhc-schema-editor[data-mode="guided"] [data-mode="guided"],.dhc-schema-editor[data-mode="raw"] [data-mode="raw"]{background:#1d2327;color:#fff}.dhc-source{margin-left:auto;color:#646970}.dhc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.dhc-field{display:grid;gap:5px}.dhc-field span{font-weight:600}.dhc-field input,.dhc-field select,.dhc-field textarea{width:100%;max-width:none}.dhc-full{grid-column:1/-1}.dhc-raw{display:none}.dhc-schema-editor[data-mode="raw"] .dhc-guided{display:none}.dhc-schema-editor[data-mode="raw"] .dhc-raw{display:block}.dhc-repeater{margin-top:16px}.dhc-repeat-row{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:center;margin:7px 0}.dhc-faq .dhc-repeat-row{grid-template-columns:1fr 2fr auto}.dhc-url-row{grid-template-columns:1fr auto}.dhc-coordinate-warning{color:#b32d2e;font-weight:600}.dhc-faq{display:none}@media(max-width:782px){.dhc-grid{grid-template-columns:1fr}.dhc-full{grid-column:auto}.dhc-repeat-row,.dhc-faq .dhc-repeat-row{grid-template-columns:1fr}}</style>
+<script>(function(){var root=document.querySelector('.dhc-schema-editor');if(!root)return;var mode=root.querySelector('.dhc-mode-input'),dirty=root.querySelector('.dhc-guided-dirty'),type=root.querySelector('select[name="dhc_guided[type]"]'),lat=root.querySelector('input[name="dhc_guided[latitude]"]'),lng=root.querySelector('input[name="dhc_guided[longitude]"]'),warn=root.querySelector('.dhc-coordinate-warning');function mark(){dirty.value='1'}function show(){var t=type.value,location=t==='LocalBusiness'||t==='SportsActivityLocation',faq=t==='FAQPage',phone=location||t==='Service'||t==='Organization';root.querySelectorAll('.dhc-location').forEach(function(n){n.style.display=location?'':'none'});root.querySelectorAll('.dhc-phone').forEach(function(n){n.style.display=phone?'':'none'});root.querySelectorAll('.dhc-faq').forEach(function(n){n.style.display=faq?'block':'none'})}function pair(){warn.textContent=((lat.value&&!lng.value)||(!lat.value&&lng.value))?'Latitude and longitude must be entered together.':''}function reindex(list,key){Array.prototype.forEach.call(list.children,function(row,i){row.querySelectorAll('input,select,textarea').forEach(function(n){n.name=n.name.replace(new RegExp(key+'\\]\\[\\d+'),key+']['+i)})})}root.querySelectorAll('.dhc-mode button').forEach(function(b){b.addEventListener('click',function(){root.dataset.mode=b.dataset.mode;mode.value=b.dataset.mode})});root.querySelector('.dhc-guided').addEventListener('input',mark);root.querySelector('.dhc-guided').addEventListener('change',mark);type.addEventListener('change',show);lat.addEventListener('input',pair);lng.addEventListener('input',pair);root.querySelector('[data-add-hours]').addEventListener('click',function(){var list=root.querySelector('[data-hours-list]'),i=list.children.length,row=list.firstElementChild.cloneNode(true);row.querySelectorAll('input,select').forEach(function(n){n.name=n.name.replace(/hours\]\[\d+/,'hours]['+i);n.value=''});list.appendChild(row);mark()});root.querySelector('[data-add-faq]').addEventListener('click',function(){var list=root.querySelector('[data-faq-list]'),i=list.children.length,row=list.firstElementChild.cloneNode(true);row.querySelectorAll('input,textarea').forEach(function(n){n.name=n.name.replace(/faqs\]\[\d+/,'faqs]['+i);n.value=''});list.appendChild(row);mark()});root.querySelector('[data-add-same-as]').addEventListener('click',function(){var list=root.querySelector('[data-same-as-list]'),i=list.children.length,row=list.firstElementChild.cloneNode(true),input=row.querySelector('input');input.name='dhc_guided[same_as]['+i+']';input.value='';list.appendChild(row);mark()});root.addEventListener('click',function(e){var button=e.target.closest('[data-remove-row]');if(!button)return;var row=button.closest('.dhc-repeat-row'),list=row.parentNode,key=list.hasAttribute('data-hours-list')?'hours':list.hasAttribute('data-faq-list')?'faqs':'same_as';if(list.children.length===1)row.querySelectorAll('input,select,textarea').forEach(function(n){n.value=''});else{row.remove();reindex(list,key)}mark()});show();pair()})();</script>
+DHC_EDITOR_ASSETS;
     }
 
     private static function clean( $value ) { return sanitize_text_field( is_scalar( $value ) ? (string) $value : '' ); }
@@ -279,7 +324,7 @@ class DHC_Schema {
         if ( $name ) $schema[ 'Article' === $type ? 'headline' : 'name' ] = $name;
         if ( $description ) $schema['description'] = $description;
         $phone = self::clean( isset( $data['phone'] ) ? $data['phone'] : '' );
-        if ( $phone ) $schema['telephone'] = $phone;
+        if ( $phone && in_array( $type, array( 'LocalBusiness', 'SportsActivityLocation', 'Organization', 'Service' ), true ) ) $schema['telephone'] = $phone;
         if ( in_array( $type, array( 'LocalBusiness', 'SportsActivityLocation' ), true ) ) {
             $address = array( '@type' => 'PostalAddress' );
             foreach ( array( 'street' => 'streetAddress', 'city' => 'addressLocality', 'region' => 'addressRegion', 'postal' => 'postalCode', 'country' => 'addressCountry' ) as $input => $property ) { $value = self::clean( isset( $data[$input] ) ? $data[$input] : '' ); if ( $value ) $address[$property] = $value; }
@@ -293,8 +338,7 @@ class DHC_Schema {
             $parent_id = isset( $data['parent_id'] ) ? (int) $data['parent_id'] : 0;
             if ( $parent_id ) $schema['branchOf'] = array( '@type' => 'Organization', 'url' => get_permalink( $parent_id ) );
         }
-        $urls = preg_split( '/\r\n|\r|\n/', isset( $data['same_as'] ) ? (string) $data['same_as'] : '' );
-        $urls = array_values( array_filter( array_map( 'esc_url_raw', $urls ) ) );
+        $urls = array_values( array_filter( array_map( 'esc_url_raw', isset( $data['same_as'] ) ? (array) $data['same_as'] : array() ) ) );
         if ( $urls ) $schema['sameAs'] = $urls;
         if ( 'FAQPage' === $type ) {
             $entities = array();
@@ -312,6 +356,7 @@ class DHC_Schema {
             self::write_schema( $post_id, $raw, 'manual', null, 'raw' );
             return;
         }
+        if ( empty( $_POST['dhc_guided_dirty'] ) ) return;
         $data = isset( $_POST['dhc_guided'] ) && is_array( $_POST['dhc_guided'] ) ? wp_unslash( $_POST['dhc_guided'] ) : array();
         $schema = self::build_guided_schema( $data );
         if ( is_wp_error( $schema ) ) { update_post_meta( $post_id, self::ERROR_META_KEY, $schema->get_error_message() ); return; }
