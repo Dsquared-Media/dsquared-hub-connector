@@ -53,6 +53,8 @@ test('legacy Brand Profile schema uses SportsClub only on the homepage and yield
     $reviewed = array();
     $canonical = json_encode(array('@context' => 'https://schema.org', '@type' => 'SportsClub', 'name' => 'The Club'));
     ob_start(); $discovery->inject_ai_schema(); $canonical_reviewed = ob_get_clean();
+    $canonical = json_encode(array(array('@context' => 'https://schema.org', '@type' => 'SportsClub', 'name' => 'The Club')));
+    ob_start(); $discovery->inject_ai_schema(); $canonical_array = ob_get_clean();
     $canonical = '{invalid json';
     ob_start(); $discovery->inject_ai_schema(); $invalid_canonical = ob_get_clean();
     $type_method = new ReflectionMethod('DHC_AI_Discovery', 'schema_type_for_profile');
@@ -60,16 +62,18 @@ test('legacy Brand Profile schema uses SportsClub only on the homepage and yield
     $dentist = $type_method->invoke($discovery, array('business_type' => 'https://schema.org/Dentist', 'address' => '123 Main St'));
     echo json_encode(array('interior' => $interior, 'homepage' => $homepage, 'approved' => $approved,
       'organization_only' => $organization_only, 'reviewed_subtype' => $reviewed_subtype,
-      'canonical_reviewed' => $canonical_reviewed, 'invalid_canonical' => $invalid_canonical,
+      'canonical_reviewed' => $canonical_reviewed, 'canonical_array' => $canonical_array,
+      'invalid_canonical' => $invalid_canonical,
       'other' => $other, 'dentist' => $dentist));
   `;
   const result = spawnSync('php', ['-r', script], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
-  const { interior, homepage, approved, organization_only, reviewed_subtype, canonical_reviewed, invalid_canonical, other, dentist } = JSON.parse(result.stdout);
+  const { interior, homepage, approved, organization_only, reviewed_subtype, canonical_reviewed, canonical_array, invalid_canonical, other, dentist } = JSON.parse(result.stdout);
   assert.equal(interior, '');
   assert.equal(approved, '');
   assert.equal(reviewed_subtype, '');
   assert.equal(canonical_reviewed, '');
+  assert.equal(canonical_array, '');
   assert.match(invalid_canonical, /"@type": "SportsClub"/);
   assert.equal(other, 'LocalBusiness');
   assert.equal(dentist, 'Dentist');

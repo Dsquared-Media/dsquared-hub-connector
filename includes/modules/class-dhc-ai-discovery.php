@@ -665,7 +665,15 @@ class DHC_AI_Discovery {
     private function contains_business_entity( $markup ) {
         if ( is_string( $markup ) ) $markup = json_decode( $markup, true );
         if ( ! is_array( $markup ) ) return false;
-        $nodes = isset( $markup['@graph'] ) && is_array( $markup['@graph'] ) ? $markup['@graph'] : array( $markup );
+        if ( isset( $markup['@graph'] ) && is_array( $markup['@graph'] ) ) {
+            $nodes = $markup['@graph'];
+        } elseif ( isset( $markup['@type'] ) ) {
+            $nodes = array( $markup );
+        } elseif ( ! empty( $markup ) && array_keys( $markup ) === range( 0, count( $markup ) - 1 ) ) {
+            $nodes = $markup;
+        } else {
+            $nodes = array( $markup );
+        }
         foreach ( $nodes as $node ) {
             if ( ! is_array( $node ) ) continue;
             $types = isset( $node['@type'] ) ? (array) $node['@type'] : array();
