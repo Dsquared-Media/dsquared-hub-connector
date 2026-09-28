@@ -187,7 +187,7 @@ class DHC_Schema {
     }
 
     /** Return false when a raw/API schema contains facts Guided mode cannot preserve. */
-    private static function guided_schema_is_lossless( $value ) {
+    private static function guided_schema_is_lossless( $value, $current_post_id = 0 ) {
         if ( ! is_array( $value ) || isset( $value['@graph'] ) || empty( $value['@type'] ) ) return false;
         if ( isset( $value['@context'] ) && ( ! is_string( $value['@context'] ) || 'https://schema.org' !== $value['@context'] ) ) return false;
         $type = $value['@type'];
@@ -220,6 +220,8 @@ class DHC_Schema {
             if ( isset( $value['branchOf']['@type'] ) && 'Organization' !== $value['branchOf']['@type'] ) return false;
             $parent_id = (int) url_to_postid( $value['branchOf']['url'] );
             if ( $parent_id < 1 || untrailingslashit( get_permalink( $parent_id ) ) !== untrailingslashit( $value['branchOf']['url'] ) ) return false;
+            $parent = get_post( $parent_id );
+            if ( ! $parent || (int) $current_post_id === $parent_id || ! in_array( $parent->post_type, array( 'page', 'post' ), true ) || ! in_array( $parent->post_status, array( 'publish', 'draft' ), true ) || '' === trim( self::canonical_value( $parent_id ) ) ) return false;
         }
         foreach ( isset( $value['mainEntity'] ) ? (array) $value['mainEntity'] : array() as $item ) {
             if ( ! self::keys_supported( $item, array( '@type', 'name', 'acceptedAnswer' ) ) || ! isset( $item['acceptedAnswer'] ) || ! self::keys_supported( $item['acceptedAnswer'], array( '@type', 'text' ) ) ) return false;
@@ -230,8 +232,8 @@ class DHC_Schema {
         return true;
     }
 
-    private static function guided_from_schema( $value ) {
-        if ( ! self::guided_schema_is_lossless( $value ) || ! in_array( $value['@type'], self::supported_types(), true ) ) return false;
+    private static function guided_from_schema( $value, $current_post_id = 0 ) {
+        if ( ! self::guided_schema_is_lossless( $value, $current_post_id ) || ! in_array( $value['@type'], self::supported_types(), true ) ) return false;
         $type = $value['@type'];
         $data = array( 'type' => $type, 'name' => isset( $value['name'] ) ? $value['name'] : ( isset( $value['headline'] ) ? $value['headline'] : '' ), 'description' => isset( $value['description'] ) ? $value['description'] : '', 'phone' => isset( $value['telephone'] ) ? $value['telephone'] : '' );
         $address = isset( $value['address'] ) && is_array( $value['address'] ) ? $value['address'] : array();
@@ -273,7 +275,7 @@ class DHC_Schema {
         $raw = self::canonical_value( $post->ID );
         $checked = self::validate_json( $raw );
         $stored_guided = get_post_meta( $post->ID, self::GUIDED_META_KEY, true );
-        $guided = is_array( $stored_guided ) ? $stored_guided : ( $checked['valid'] && $checked['value'] ? self::guided_from_schema( $checked['value'] ) : false );
+        $guided = is_array( $stored_guided ) ? $stored_guided : ( $checked['valid'] && $checked['value'] ? self::guided_from_schema( $checked['value'], $post->ID ) : false );
         $compatible = is_array( $guided );
         if ( ! $compatible ) $guided = array( 'type' => 'LocalBusiness' );
         $mode = get_post_meta( $post->ID, self::MODE_META_KEY, true );

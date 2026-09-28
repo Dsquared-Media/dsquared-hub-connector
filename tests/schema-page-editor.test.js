@@ -37,9 +37,12 @@ test('guided mode only accepts schemas it can round-trip without data loss', () 
     'function sanitize_text_field($v){return trim(strip_tags((string)$v));}',
     'function sanitize_textarea_field($v){return trim(strip_tags((string)$v));}',
     'function esc_url_raw($v){return filter_var($v,FILTER_VALIDATE_URL)?$v:"";}',
-    'function url_to_postid($v){return $v==="https://example.com/about/"?42:0;}',
-    'function get_permalink($id){return $id===42?"https://example.com/about/":"";}',
+    'function url_to_postid($v){return $v==="https://example.com/about/"?42:($v==="https://example.com/plain/"?43:0);}',
+    'function get_permalink($id){return $id===42?"https://example.com/about/":($id===43?"https://example.com/plain/":"");}',
     'function untrailingslashit($v){return rtrim($v,"/");}',
+    'function wp_json_encode($v,$f=0){return json_encode($v,$f);}',
+    'function get_post($id){return in_array($id,array(42,43),true)?(object)array("post_type"=>"page","post_status"=>"publish"):null;}',
+    'function get_post_meta($id,$key,$single=true){return $id===42&&$key==="_d2_custom_schema"?array("@type"=>"Organization"):"";}',
     `require ${JSON.stringify(classFile)};`,
     '$method=new ReflectionMethod("DHC_Schema","guided_schema_is_lossless");',
     '$article=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"Article","headline"=>"Title","author"=>array("@type"=>"Person","name"=>"Jane")));',
@@ -49,7 +52,9 @@ test('guided mode only accepts schemas it can round-trip without data loss', () 
     '$external=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"LocalBusiness","branchOf"=>array("@type"=>"Organization","url"=>"https://other.example/")));',
     '$weekday=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"LocalBusiness","openingHoursSpecification"=>array(array("@type"=>"OpeningHoursSpecification","dayOfWeek"=>"https://schema.org/Monday","opens"=>"09:00","closes"=>"17:00"))));',
     '$parent=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"LocalBusiness","branchOf"=>array("@type"=>"Organization","url"=>"https://example.com/about/")));',
-    'echo json_encode(array("article"=>$article,"organization"=>$organization,"context"=>$context,"markup"=>$markup,"external"=>$external,"weekday"=>$weekday,"parent"=>$parent));'
+    '$self=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"LocalBusiness","branchOf"=>array("@type"=>"Organization","url"=>"https://example.com/about/")),42);',
+    '$plain=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"LocalBusiness","branchOf"=>array("@type"=>"Organization","url"=>"https://example.com/plain/")));',
+    'echo json_encode(array("article"=>$article,"organization"=>$organization,"context"=>$context,"markup"=>$markup,"external"=>$external,"weekday"=>$weekday,"parent"=>$parent,"self"=>$self,"plain"=>$plain));'
   ].join(' ');
   const result = JSON.parse(execFileSync('php', ['-r', script], { encoding: 'utf8' }));
   assert.equal(result.article, false);
@@ -59,6 +64,8 @@ test('guided mode only accepts schemas it can round-trip without data loss', () 
   assert.equal(result.external, false);
   assert.equal(result.weekday, false);
   assert.equal(result.parent, true);
+  assert.equal(result.self, false);
+  assert.equal(result.plain, false);
 });
 
 test('JSON validation and REST URL matching reject invalid or unmatched page data', () => {
