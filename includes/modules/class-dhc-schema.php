@@ -179,9 +179,17 @@ class DHC_Schema {
         return is_array( $value ) && ! array_diff( array_keys( $value ), $allowed );
     }
 
+    private static function guided_scalar_is_lossless( $value, $textarea = false ) {
+        if ( ! is_scalar( $value ) ) return false;
+        $raw = (string) $value;
+        $clean = $textarea ? sanitize_textarea_field( $raw ) : sanitize_text_field( $raw );
+        return $raw === $clean;
+    }
+
     /** Return false when a raw/API schema contains facts Guided mode cannot preserve. */
     private static function guided_schema_is_lossless( $value ) {
         if ( ! is_array( $value ) || isset( $value['@graph'] ) || empty( $value['@type'] ) ) return false;
+        if ( isset( $value['@context'] ) && ( ! is_string( $value['@context'] ) || 'https://schema.org' !== $value['@context'] ) ) return false;
         $type = $value['@type'];
         $allowed = array( '@context', '@type', 'name', 'description', 'sameAs' );
         if ( 'Article' === $type ) $allowed = array( '@context', '@type', 'headline', 'description', 'sameAs' );
@@ -192,17 +200,32 @@ class DHC_Schema {
         if ( ! self::keys_supported( $value, $allowed ) ) return false;
         if ( isset( $value['address'] ) && ! self::keys_supported( $value['address'], array( '@type', 'streetAddress', 'addressLocality', 'addressRegion', 'postalCode', 'addressCountry' ) ) ) return false;
         if ( isset( $value['geo'] ) && ! self::keys_supported( $value['geo'], array( '@type', 'latitude', 'longitude' ) ) ) return false;
-        foreach ( array( 'name', 'headline', 'description', 'telephone' ) as $key ) if ( isset( $value[$key] ) && ! is_scalar( $value[$key] ) ) return false;
-        foreach ( isset( $value['sameAs'] ) ? (array) $value['sameAs'] : array() as $url ) if ( ! is_scalar( $url ) ) return false;
-        foreach ( isset( $value['address'] ) ? $value['address'] : array() as $key => $item ) if ( '@type' !== $key && ! is_scalar( $item ) ) return false;
-        foreach ( isset( $value['geo'] ) ? $value['geo'] : array() as $key => $item ) if ( '@type' !== $key && ! is_scalar( $item ) ) return false;
+        foreach ( array( 'name', 'headline', 'telephone' ) as $key ) if ( isset( $value[$key] ) && ! self::guided_scalar_is_lossless( $value[$key] ) ) return false;
+        if ( isset( $value['description'] ) && ! self::guided_scalar_is_lossless( $value['description'], true ) ) return false;
+        foreach ( isset( $value['sameAs'] ) ? (array) $value['sameAs'] : array() as $url ) if ( ! is_string( $url ) || '' === $url || esc_url_raw( $url ) !== $url ) return false;
+        if ( isset( $value['address']['@type'] ) && 'PostalAddress' !== $value['address']['@type'] ) return false;
+        foreach ( isset( $value['address'] ) ? $value['address'] : array() as $key => $item ) if ( '@type' !== $key && ! self::guided_scalar_is_lossless( $item ) ) return false;
+        if ( isset( $value['geo']['@type'] ) && 'GeoCoordinates' !== $value['geo']['@type'] ) return false;
+        foreach ( isset( $value['geo'] ) ? $value['geo'] : array() as $key => $item ) if ( '@type' !== $key && ! self::guided_scalar_is_lossless( $item ) ) return false;
+        $days = array( 'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday' );
         foreach ( isset( $value['openingHoursSpecification'] ) ? (array) $value['openingHoursSpecification'] : array() as $row ) {
-            if ( ! self::keys_supported( $row, array( '@type', 'dayOfWeek', 'opens', 'closes' ) ) || ( isset( $row['dayOfWeek'] ) && ! is_scalar( $row['dayOfWeek'] ) ) ) return false;
+            if ( ! self::keys_supported( $row, array( '@type', 'dayOfWeek', 'opens', 'closes' ) ) ) return false;
+            if ( isset( $row['@type'] ) && 'OpeningHoursSpecification' !== $row['@type'] ) return false;
+            if ( empty( $row['dayOfWeek'] ) || ! in_array( $row['dayOfWeek'], $days, true ) ) return false;
+            if ( empty( $row['opens'] ) || empty( $row['closes'] ) || ! preg_match( '/^(?:[01]\d|2[0-3]):[0-5]\d$/', $row['opens'] ) || ! preg_match( '/^(?:[01]\d|2[0-3]):[0-5]\d$/', $row['closes'] ) ) return false;
         }
         if ( isset( $value['parentOrganization'] ) ) return false;
-        if ( isset( $value['branchOf'] ) && ( ! self::keys_supported( $value['branchOf'], array( '@type', 'url' ) ) || empty( $value['branchOf']['url'] ) ) ) return false;
+        if ( isset( $value['branchOf'] ) ) {
+            if ( ! self::keys_supported( $value['branchOf'], array( '@type', 'url' ) ) || empty( $value['branchOf']['url'] ) || ! is_string( $value['branchOf']['url'] ) ) return false;
+            if ( isset( $value['branchOf']['@type'] ) && 'Organization' !== $value['branchOf']['@type'] ) return false;
+            $parent_id = (int) url_to_postid( $value['branchOf']['url'] );
+            if ( $parent_id < 1 || untrailingslashit( get_permalink( $parent_id ) ) !== untrailingslashit( $value['branchOf']['url'] ) ) return false;
+        }
         foreach ( isset( $value['mainEntity'] ) ? (array) $value['mainEntity'] : array() as $item ) {
-            if ( ! self::keys_supported( $item, array( '@type', 'name', 'acceptedAnswer' ) ) || ! isset( $item['acceptedAnswer'] ) || ! self::keys_supported( $item['acceptedAnswer'], array( '@type', 'text' ) ) || ! is_scalar( $item['name'] ) || ! isset( $item['acceptedAnswer']['text'] ) || ! is_scalar( $item['acceptedAnswer']['text'] ) ) return false;
+            if ( ! self::keys_supported( $item, array( '@type', 'name', 'acceptedAnswer' ) ) || ! isset( $item['acceptedAnswer'] ) || ! self::keys_supported( $item['acceptedAnswer'], array( '@type', 'text' ) ) ) return false;
+            if ( isset( $item['@type'] ) && 'Question' !== $item['@type'] ) return false;
+            if ( isset( $item['acceptedAnswer']['@type'] ) && 'Answer' !== $item['acceptedAnswer']['@type'] ) return false;
+            if ( ! isset( $item['name'], $item['acceptedAnswer']['text'] ) || ! self::guided_scalar_is_lossless( $item['name'] ) || ! self::guided_scalar_is_lossless( $item['acceptedAnswer']['text'], true ) ) return false;
         }
         return true;
     }

@@ -34,15 +34,31 @@ test('schema editor, front-end output, and authenticated page_url route share on
 test('guided mode only accepts schemas it can round-trip without data loss', () => {
   const script = [
     "define('ABSPATH', __DIR__);",
+    'function sanitize_text_field($v){return trim(strip_tags((string)$v));}',
+    'function sanitize_textarea_field($v){return trim(strip_tags((string)$v));}',
+    'function esc_url_raw($v){return filter_var($v,FILTER_VALIDATE_URL)?$v:"";}',
+    'function url_to_postid($v){return $v==="https://example.com/about/"?42:0;}',
+    'function get_permalink($id){return $id===42?"https://example.com/about/":"";}',
+    'function untrailingslashit($v){return rtrim($v,"/");}',
     `require ${JSON.stringify(classFile)};`,
     '$method=new ReflectionMethod("DHC_Schema","guided_schema_is_lossless");',
     '$article=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"Article","headline"=>"Title","author"=>array("@type"=>"Person","name"=>"Jane")));',
     '$organization=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"Organization","name"=>"Example","telephone"=>"555-1212"));',
-    'echo json_encode(array("article"=>$article,"organization"=>$organization));'
+    '$context=$method->invoke(null,array("@context"=>array("https://schema.org"),"@type"=>"Organization","name"=>"Example"));',
+    '$markup=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"Organization","description"=>"<b>Example</b>"));',
+    '$external=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"LocalBusiness","branchOf"=>array("@type"=>"Organization","url"=>"https://other.example/")));',
+    '$weekday=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"LocalBusiness","openingHoursSpecification"=>array(array("@type"=>"OpeningHoursSpecification","dayOfWeek"=>"https://schema.org/Monday","opens"=>"09:00","closes"=>"17:00"))));',
+    '$parent=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"LocalBusiness","branchOf"=>array("@type"=>"Organization","url"=>"https://example.com/about/")));',
+    'echo json_encode(array("article"=>$article,"organization"=>$organization,"context"=>$context,"markup"=>$markup,"external"=>$external,"weekday"=>$weekday,"parent"=>$parent));'
   ].join(' ');
   const result = JSON.parse(execFileSync('php', ['-r', script], { encoding: 'utf8' }));
   assert.equal(result.article, false);
   assert.equal(result.organization, true);
+  assert.equal(result.context, false);
+  assert.equal(result.markup, false);
+  assert.equal(result.external, false);
+  assert.equal(result.weekday, false);
+  assert.equal(result.parent, true);
 });
 
 test('JSON validation and REST URL matching reject invalid or unmatched page data', () => {
