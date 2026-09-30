@@ -59,18 +59,18 @@
         const unlimited = priced && state.quote.unlimited === true;
         const unit = unlimited ? 0 : Math.max(1, Number(state.quote.unit_credits) || 1);
         el('dhc-alt-selected').textContent = String(count);
-        el('dhc-alt-cost').textContent = String(count * unit);
+        el('dhc-alt-cost').textContent = priced ? String(state.quote.total_credits ?? count * unit) : '—';
         el('dhc-alt-action-summary').textContent = count
             ? `${count} image${count === 1 ? '' : 's'} selected`
             : dhcAltText.messages.selectImages;
         el('dhc-alt-action-detail').textContent = count
-            ? (!priced ? 'Hub pricing could not be verified. Refresh before generating.' : unlimited ? 'AI generation is included for this account; saving reviewed drafts is free.' : `Generate up to ${count * unit} credit${count * unit === 1 ? '' : 's'}; saving reviewed drafts is free.`)
+            ? (!priced ? 'Your exact website credit quote appears before generation.' : unlimited ? 'AI generation is included for this website; saving reviewed drafts is free.' : `Exact quote: ${state.quote.total_credits} credit${state.quote.total_credits === 1 ? '' : 's'}; saving reviewed drafts is free.`)
             : dhcAltText.messages.noAutomaticSave;
         generate.textContent = count
-            ? `Generate ${count} draft${count === 1 ? '' : 's'} · ${!priced ? 'pricing unavailable' : unlimited ? 'included' : `up to ${count * unit} credit${count * unit === 1 ? '' : 's'}`}`
+            ? `Generate ${count} draft${count === 1 ? '' : 's'}${priced ? ` · ${unlimited ? 'included' : `${state.quote.total_credits} credit${state.quote.total_credits === 1 ? '' : 's'}`}` : ''}`
             : dhcAltText.messages.generate;
         const overLimit = count > Math.min(20, Number(state.quote.max_batch) || 20);
-        generate.disabled = state.loading || !count || overLimit || !dhcAltText.connected || !priced;
+        generate.disabled = state.loading || !count || overLimit || !dhcAltText.connected;
         save.disabled = state.loading || !selectedSavable().length;
         clear.disabled = state.loading || !count;
         if (overLimit) showNotice(`Select no more than ${state.quote.max_batch} images for one generation batch.`, 'warning');
@@ -241,14 +241,25 @@
     async function generateDrafts() {
         const ids = Array.from(state.selected);
         if (!ids.length || state.loading) return;
-        const charge = state.quote.unlimited ? 'This generation is included for this account.' : `This can use up to ${ids.length * state.quote.unit_credits} Hub credit${ids.length * state.quote.unit_credits === 1 ? '' : 's'}.`;
-        const confirmed = window.confirm(`Generate drafts for ${ids.length} image${ids.length === 1 ? '' : 's'}? ${charge}`);
-        if (!confirmed) return;
         hideNotice();
         setBusy(true);
         try {
             const images = ids.map(id => state.items.get(id)).filter(Boolean).map(item => ({ media_id: item.id }));
-            const data = await post('dhc_alt_generate', { images: JSON.stringify(images) });
+            const quote = await post('dhc_alt_quote', { images: JSON.stringify(images) });
+            state.quote = { ...quote, available: true };
+            updateSummary();
+            const charge = quote.unlimited ? 'This generation is included for this website.' : `The exact charge is ${quote.total_credits} Hub credit${quote.total_credits === 1 ? '' : 's'}.`;
+            const confirmed = window.confirm(`Generate drafts for ${ids.length} image${ids.length === 1 ? '' : 's'}? ${charge}`);
+            if (!confirmed) return;
+            const data = await post('dhc_alt_generate', {
+                images: JSON.stringify(images),
+                quote_token: quote.quote_token,
+                request_id: quote.request_id
+            });
+            if (['claimed', 'charged', 'recovering'].includes(data.status)) {
+                showNotice('This exact request is still processing. Retry shortly; it will not be charged twice.', 'warning');
+                return;
+            }
             (data.results || []).forEach(result => {
                 const item = state.items.get(Number(result.media_id));
                 if (!item) return;
@@ -268,7 +279,9 @@
                 }
             });
             const summary = data.summary || {};
-            showNotice(`${summary.generated || 0} draft${summary.generated === 1 ? '' : 's'} generated. ${summary.skipped || 0} sent to manual review. ${summary.credits_used || 0} credit${summary.credits_used === 1 ? '' : 's'} used.`, summary.failed ? 'warning' : 'success');
+            const pending = Number(summary.refund_pending_credits || 0);
+            const billing = `${summary.charged_credits || 0} charged, ${summary.refunded_credits || 0} refunded${pending ? `, ${pending} pending recovery` : ''}, ${summary.net_credits || 0} net.`;
+            showNotice(`${summary.generated || 0} draft${summary.generated === 1 ? '' : 's'} generated. ${summary.skipped || 0} sent to manual review. ${billing}`, pending || summary.failed ? 'warning' : 'success');
             renderAll();
         } catch (error) {
             showNotice(error.message, 'error');

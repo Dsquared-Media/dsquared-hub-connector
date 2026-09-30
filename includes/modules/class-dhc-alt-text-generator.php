@@ -23,6 +23,7 @@ class DHC_Alt_Text_Generator {
     /** Register authenticated admin actions. */
     public static function init() {
         add_action( 'wp_ajax_dhc_alt_inventory', array( __CLASS__, 'ajax_inventory' ) );
+        add_action( 'wp_ajax_dhc_alt_quote', array( __CLASS__, 'ajax_quote' ) );
         add_action( 'wp_ajax_dhc_alt_generate', array( __CLASS__, 'ajax_generate' ) );
         add_action( 'wp_ajax_dhc_alt_save', array( __CLASS__, 'ajax_save' ) );
     }
@@ -165,7 +166,7 @@ class DHC_Alt_Text_Generator {
             'total_pages'   => (int) $query->max_num_pages,
             'filtered_total'=> (int) $query->found_posts,
             'missing_total' => self::missing_image_count(),
-            'quote'         => self::hub_quote(),
+            'quote'         => array( 'available' => false, 'max_batch' => self::MAX_BATCH ),
         ) );
     }
 
@@ -183,34 +184,81 @@ class DHC_Alt_Text_Generator {
         return (int) $wpdb->get_var( $sql ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- fixed table names and literals only.
     }
 
-    /** Read the current managed Hub credit price without exposing the key. */
-    private static function hub_quote() {
-        $fallback = array( 'unit_credits' => 1, 'unlimited' => false, 'max_batch' => self::MAX_BATCH, 'available' => false );
-        $api_key  = get_option( 'dhc_api_key', '' );
-        if ( empty( $api_key ) ) {
-            return $fallback;
+    /** Resolve Media Library IDs to canonical attachment URLs. */
+    private static function selected_images() {
+        $raw = isset( $_POST['images'] ) ? json_decode( wp_unslash( $_POST['images'] ), true ) : array();
+        if ( ! is_array( $raw ) || empty( $raw ) ) {
+            return new WP_Error( 'empty_selection', 'Select at least one image.' );
         }
-        $response = wp_remote_get( DHC_HUB_API_BASE . '/plugin/alt-text/quote', array(
+        if ( count( $raw ) > self::MAX_BATCH ) {
+            return new WP_Error( 'batch_too_large', 'Generate at most ' . self::MAX_BATCH . ' images at a time.' );
+        }
+        $images = array();
+        $seen   = array();
+        foreach ( $raw as $item ) {
+            $id = isset( $item['media_id'] ) ? absint( $item['media_id'] ) : 0;
+            if ( ! $id || isset( $seen[ $id ] ) || 'attachment' !== get_post_type( $id ) || 0 !== strpos( (string) get_post_mime_type( $id ), 'image/' ) ) {
+                return new WP_Error( 'invalid_media', 'One selected Media Library item is invalid.' );
+            }
+            $url = wp_get_attachment_url( $id );
+            if ( ! $url ) {
+                return new WP_Error( 'missing_media_url', 'One selected image no longer has a source URL.' );
+            }
+            $seen[ $id ] = true;
+            $images[] = array( 'media_id' => $id, 'url' => esc_url_raw( $url ) );
+        }
+        usort( $images, function( $a, $b ) { return $a['media_id'] - $b['media_id']; } );
+        return $images;
+    }
+
+    /** Stable retry ID survives a lost Hub response until a terminal receipt arrives. */
+    private static function request_transient_key( $images ) {
+        return 'dhc_alt_req_' . get_current_user_id() . '_' . substr( hash( 'sha256', wp_json_encode( $images ) ), 0, 24 );
+    }
+
+    private static function request_id( $images ) {
+        $key = self::request_transient_key( $images );
+        $id  = get_transient( $key );
+        if ( ! is_string( $id ) || ! wp_is_uuid( $id ) ) {
+            $id = wp_generate_uuid4();
+            set_transient( $key, $id, 30 * MINUTE_IN_SECONDS );
+        }
+        return $id;
+    }
+
+    /** Obtain one signed, selection-bound quote from the authoritative site wallet. */
+    public static function ajax_quote() {
+        self::authorize_ajax();
+        $subscription = DHC_API_Key::validate();
+        if ( empty( $subscription['valid'] ) ) {
+            wp_send_json_error( array( 'message' => 'Alt text generation requires an active Hub connection.' ), 403 );
+        }
+        $images = self::selected_images();
+        if ( is_wp_error( $images ) ) {
+            wp_send_json_error( array( 'message' => $images->get_error_message() ), 400 );
+        }
+        $request_id = self::request_id( $images );
+        $api_key    = get_option( 'dhc_api_key', '' );
+        $response   = wp_remote_post( DHC_HUB_API_BASE . '/plugin/alt-text/quote', array(
             'headers' => array(
                 'X-DHC-API-Key'  => $api_key,
                 'X-DHC-Site-Url' => home_url( '/' ),
+                'Content-Type'   => 'application/json',
                 'Accept'         => 'application/json',
             ),
-            'timeout' => 10,
+            'body'    => wp_json_encode( array( 'site_url' => home_url( '/' ), 'request_id' => $request_id, 'images' => $images ) ),
+            'timeout' => 15,
         ) );
         if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
-            return $fallback;
+            $body = is_wp_error( $response ) ? array() : json_decode( wp_remote_retrieve_body( $response ), true );
+            wp_send_json_error( array( 'message' => ! empty( $body['error'] ) ? sanitize_text_field( $body['error'] ) : 'The Hub could not prepare an exact credit quote.' ), 502 );
         }
         $body = json_decode( wp_remote_retrieve_body( $response ), true );
-        if ( ! is_array( $body ) || ! isset( $body['unit_credits'] ) ) {
-            return $fallback;
+        if ( ! is_array( $body ) || empty( $body['quote_token'] ) || empty( $body['request_id'] ) ) {
+            wp_send_json_error( array( 'message' => 'The Hub returned an incomplete credit quote.' ), 502 );
         }
-        return array(
-            'unit_credits' => max( 1, absint( $body['unit_credits'] ) ),
-            'unlimited'    => ! empty( $body['unlimited'] ),
-            'max_batch'    => min( self::MAX_BATCH, max( 1, absint( $body['max_batch'] ?? self::MAX_BATCH ) ) ),
-            'available'    => true,
-        );
+        $body['available'] = true;
+        wp_send_json_success( $body );
     }
 
     /** Proxy a reviewed selection to the Hub's site-bound paid route. */
@@ -220,30 +268,14 @@ class DHC_Alt_Text_Generator {
         if ( empty( $subscription['valid'] ) ) {
             wp_send_json_error( array( 'message' => 'Alt text generation requires an active Hub connection.' ), 403 );
         }
-        $raw = isset( $_POST['images'] ) ? json_decode( wp_unslash( $_POST['images'] ), true ) : array();
-        if ( ! is_array( $raw ) || empty( $raw ) ) {
-            wp_send_json_error( array( 'message' => 'Select at least one image.' ), 400 );
+        $images = self::selected_images();
+        if ( is_wp_error( $images ) ) {
+            wp_send_json_error( array( 'message' => $images->get_error_message() ), 400 );
         }
-        if ( count( $raw ) > self::MAX_BATCH ) {
-            wp_send_json_error( array( 'message' => 'Generate at most ' . self::MAX_BATCH . ' images at a time.' ), 400 );
-        }
-        $images = array();
-        $seen   = array();
-        foreach ( $raw as $item ) {
-            $id = isset( $item['media_id'] ) ? absint( $item['media_id'] ) : 0;
-            if ( ! $id || isset( $seen[ $id ] ) || 'attachment' !== get_post_type( $id ) || 0 !== strpos( (string) get_post_mime_type( $id ), 'image/' ) ) {
-                wp_send_json_error( array( 'message' => 'One selected Media Library item is invalid.' ), 400 );
-            }
-            $url = wp_get_attachment_url( $id );
-            if ( ! $url ) {
-                wp_send_json_error( array( 'message' => 'One selected image no longer has a source URL.' ), 400 );
-            }
-            $seen[ $id ] = true;
-            $images[] = array(
-                'media_id' => $id,
-                'url'      => esc_url_raw( $url ),
-                'filename' => sanitize_file_name( wp_basename( wp_parse_url( $url, PHP_URL_PATH ) ) ),
-            );
+        $quote_token = isset( $_POST['quote_token'] ) ? sanitize_text_field( wp_unslash( $_POST['quote_token'] ) ) : '';
+        $request_id  = isset( $_POST['request_id'] ) ? sanitize_text_field( wp_unslash( $_POST['request_id'] ) ) : '';
+        if ( '' === $quote_token || ! wp_is_uuid( $request_id ) || $request_id !== self::request_id( $images ) ) {
+            wp_send_json_error( array( 'message' => 'The exact credit quote is missing or no longer matches this selection.' ), 409 );
         }
 
         $api_key = get_option( 'dhc_api_key', '' );
@@ -254,7 +286,7 @@ class DHC_Alt_Text_Generator {
                 'Content-Type'   => 'application/json',
                 'Accept'         => 'application/json',
             ),
-            'body'    => wp_json_encode( array( 'site_url' => home_url( '/' ), 'images' => $images ) ),
+            'body'    => wp_json_encode( array( 'site_url' => home_url( '/' ), 'images' => $images, 'quote_token' => $quote_token, 'request_id' => $request_id ) ),
             'timeout' => 120,
         ) );
         if ( is_wp_error( $response ) ) {
@@ -265,6 +297,9 @@ class DHC_Alt_Text_Generator {
         if ( $code < 200 || $code >= 300 || ! is_array( $body ) ) {
             $message = is_array( $body ) && ! empty( $body['error'] ) ? sanitize_text_field( $body['error'] ) : 'The Hub could not generate alt text.';
             wp_send_json_error( array( 'message' => $message, 'code' => $body['code'] ?? '' ), $code ?: 502 );
+        }
+        if ( 202 !== $code && in_array( $body['status'] ?? '', array( 'succeeded', 'failed', 'refunded', 'refund_pending' ), true ) ) {
+            delete_transient( self::request_transient_key( $images ) );
         }
         wp_send_json_success( $body );
     }

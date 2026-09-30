@@ -31,11 +31,12 @@ Status: **Implemented, awaiting independent QA**
 
 ## Interaction and mutation contract
 
-- Selecting images is free. The Generate button states the exact maximum charge: one credit per selected image.
+- Selecting images is free. Immediately before confirmation, WordPress requests a short-lived signed quote bound to the connector's website wallet, current managed price, exact Media Library IDs, and one stable request ID.
 - Generation begins only after an administrator clicks the priced Generate button.
 - The browser never receives the Connector API key. WordPress proxies generation server-side over HTTPS using the existing `X-DHC-API-Key` contract.
 - The Hub resolves the API key to exactly one active website and charges that website owner’s wallet. Cross-site assertions are rejected.
-- Each successfully generated image costs one credit. Skipped people/headshots and provider/output failures are refunded using the existing reservation recovery system.
+- Each successfully generated image costs the quoted unit price. Skipped people/headshots and provider/output failures are refunded using the existing reservation recovery system. The result separates charged, refunded, refund-pending, and net credits.
+- Retrying after a lost or interrupted response reuses the same request ID and durable Hub receipt; it never starts another debit or provider call for that request.
 - AI output is a draft. Saving requires a separate click and writes `_wp_attachment_image_alt` only for reviewed rows.
 - Save validates capability, attachment identity, classification, and maximum alt length; it returns per-image receipts and logs the event.
 - Repeated Generate clicks are disabled while a request is pending. Only the current request may update the page.

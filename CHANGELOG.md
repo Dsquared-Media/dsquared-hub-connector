@@ -5,6 +5,7 @@
 - Add a review-first Alt Text Generator inside WordPress admin.
 - Keep the Media Library inventory and approved saves local while using the website-bound Hub connection for paid AI drafts.
 - Show managed credit pricing before generation and refund skipped people/headshots or provider failures.
+- Bind generation to an exact website-wallet quote and durable retry receipt, with explicit refund-pending totals.
 
 ## 1.19.0
 

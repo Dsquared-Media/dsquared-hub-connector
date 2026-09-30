@@ -173,7 +173,7 @@ class DHC_Admin {
             wp_localize_script( 'dhc-alt-text', 'dhcAltText', array(
                 'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
                 'nonce'     => wp_create_nonce( 'dhc_alt_text_nonce' ),
-                'connected' => DHC_API_Key::is_module_available( 'seo_meta' ),
+                'connected' => ! empty( DHC_API_Key::validate()['valid'] ),
                 'messages'  => array(
                     'requestFailed'  => esc_html__( 'The request could not be completed.', 'dsquared-hub-connector' ),
                     'selectImages'   => esc_html__( 'Select images to begin', 'dsquared-hub-connector' ),

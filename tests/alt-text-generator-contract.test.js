@@ -30,6 +30,9 @@ test('plugin generator exposes responsive containment and explicit paid confirma
   assert.match(css, /grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);
   assert.match(css, /@media\(max-width:600px\).*grid-template-columns:1fr/s);
   assert.match(js, /window\.confirm\(/);
-  assert.match(js, /up to.*Hub credit/s);
+  assert.match(js, /exact charge.*Hub credit/s);
+  assert.match(js, /dhc_alt_quote/);
+  assert.match(js, /quote_token: quote\.quote_token/);
+  assert.match(js, /refund_pending_credits/);
   assert.match(js, /people and headshots are not auto-described/i);
 });
