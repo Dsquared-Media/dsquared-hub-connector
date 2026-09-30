@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.19.0
+Stable tag: 1.20.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -25,6 +25,7 @@ All features are subscription-gated via an API key. If your subscription lapses,
 *   **AI Discovery:** Generate an AI-readable business profile (`llms.txt`), inject LocalBusiness schema, and automatically ping IndexNow (Bing/Yandex) when content changes to ensure AI search engines know you exist. (Pro Tier)
 *   **Content Decay Alerts:** Monitor your published posts for freshness and report stale content back to the Hub so you know what needs updating. (Growth+ Tier)
 *   **Form Submission Capture:** Hook into popular form plugins (Contact Form 7, Gravity Forms, WPForms, Elementor) to capture leads, filter spam in real-time, and send clean lead data to your Hub pipeline. (Pro Tier)
+*   **Alt Text Generator:** Review Media Library images with missing alt text, generate concise Hub-backed drafts, and save approved changes without leaving WordPress. People and headshots are left for manual review. (Growth+ Tier)
 
 ### Privacy & Data Collection
 
@@ -64,6 +65,11 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.20.0 =
+* Add a review-first Alt Text Generator inside WordPress admin.
+* Keep Media Library inventory and approved saves local while using the existing website-bound Hub connection for paid AI drafts.
+* Show the exact managed credit quote before generation and refund skipped people/headshots or failed generations.
 
 = 1.19.0 =
 * Add a per-page Schema (JSON-LD) editor with Guided and Raw JSON modes.

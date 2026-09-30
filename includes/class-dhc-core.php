@@ -34,6 +34,7 @@ class DHC_Core {
         // Admin settings page
         if ( is_admin() ) {
             DHC_Admin::init();
+            DHC_Alt_Text_Generator::init();
         }
 
         // Self-hosted auto-updater

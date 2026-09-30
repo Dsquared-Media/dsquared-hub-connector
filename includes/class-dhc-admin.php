@@ -124,6 +124,17 @@ class DHC_Admin {
                 array( 'DHC_Analytics', 'render_admin_page' )
             );
         }
+
+        if ( class_exists( 'DHC_Alt_Text_Generator' ) ) {
+            add_submenu_page(
+                'dsquared-hub',
+                esc_html__( 'Alt Text Generator', 'dsquared-hub-connector' ),
+                esc_html__( 'Alt Text Generator', 'dsquared-hub-connector' ),
+                'manage_options',
+                DHC_Alt_Text_Generator::PAGE_SLUG,
+                array( 'DHC_Alt_Text_Generator', 'render_admin_page' )
+            );
+        }
     }
 
     /**
@@ -155,6 +166,25 @@ class DHC_Admin {
             'nonce'   => wp_create_nonce( 'dhc_admin_nonce' ),
             'restUrl' => rest_url( 'dsquared-hub/v1/' ),
         ) );
+
+        if ( strpos( $hook, DHC_Alt_Text_Generator::PAGE_SLUG ) !== false ) {
+            wp_enqueue_style( 'dhc-alt-text', DHC_PLUGIN_URL . 'admin/css/dhc-alt-text.css', array( 'dhc-admin' ), DHC_VERSION );
+            wp_enqueue_script( 'dhc-alt-text', DHC_PLUGIN_URL . 'admin/js/dhc-alt-text.js', array(), DHC_VERSION, true );
+            wp_localize_script( 'dhc-alt-text', 'dhcAltText', array(
+                'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
+                'nonce'     => wp_create_nonce( 'dhc_alt_text_nonce' ),
+                'connected' => DHC_API_Key::is_module_available( 'seo_meta' ),
+                'messages'  => array(
+                    'requestFailed'  => esc_html__( 'The request could not be completed.', 'dsquared-hub-connector' ),
+                    'selectImages'   => esc_html__( 'Select images to begin', 'dsquared-hub-connector' ),
+                    'noAutomaticSave'=> esc_html__( 'Nothing is generated or saved without your approval.', 'dsquared-hub-connector' ),
+                    'generate'       => esc_html__( 'Generate drafts', 'dsquared-hub-connector' ),
+                    'loading'        => esc_html__( 'Loading Media Library images…', 'dsquared-hub-connector' ),
+                    'noMissing'      => esc_html__( 'Every Media Library image in this view already has alt text.', 'dsquared-hub-connector' ),
+                    'noImages'       => esc_html__( 'No Media Library images matched this view.', 'dsquared-hub-connector' ),
+                ),
+            ) );
+        }
     }
 
     /**
