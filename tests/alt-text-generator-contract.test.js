@@ -27,6 +27,7 @@ test('plugin alt-text save is review-first and attachment scoped', () => {
 test('plugin generator exposes responsive containment and explicit paid confirmation', () => {
   const css = read('admin/css/dhc-alt-text.css');
   const js = read('admin/js/dhc-alt-text.js');
+  const modulePhp = read('includes/modules/class-dhc-alt-text-generator.php');
   assert.match(css, /grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);
   assert.match(css, /@media\(max-width:600px\).*grid-template-columns:1fr/s);
   assert.match(js, /window\.confirm\(/);
@@ -35,4 +36,8 @@ test('plugin generator exposes responsive containment and explicit paid confirma
   assert.match(js, /quote_token: quote\.quote_token/);
   assert.match(js, /refund_pending_credits/);
   assert.match(js, /people and headshots are not auto-described/i);
+  assert.match(modulePhp, /get_user_meta\(/);
+  assert.match(modulePhp, /update_user_meta\(/);
+  assert.match(modulePhp, /delete_user_meta\(/);
+  assert.doesNotMatch(modulePhp, /set_transient\(/);
 });

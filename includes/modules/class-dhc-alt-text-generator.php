@@ -211,17 +211,18 @@ class DHC_Alt_Text_Generator {
         return $images;
     }
 
-    /** Stable retry ID survives a lost Hub response until a terminal receipt arrives. */
-    private static function request_transient_key( $images ) {
-        return 'dhc_alt_req_' . get_current_user_id() . '_' . substr( hash( 'sha256', wp_json_encode( $images ) ), 0, 24 );
+    /** Persistent request key survives cache eviction and delayed retries. */
+    private static function request_meta_key( $images ) {
+        return '_dhc_alt_req_' . hash( 'sha256', wp_json_encode( $images ) );
     }
 
     private static function request_id( $images ) {
-        $key = self::request_transient_key( $images );
-        $id  = get_transient( $key );
+        $user_id = get_current_user_id();
+        $key     = self::request_meta_key( $images );
+        $id      = get_user_meta( $user_id, $key, true );
         if ( ! is_string( $id ) || ! wp_is_uuid( $id ) ) {
             $id = wp_generate_uuid4();
-            set_transient( $key, $id, 30 * MINUTE_IN_SECONDS );
+            update_user_meta( $user_id, $key, $id );
         }
         return $id;
     }
@@ -298,8 +299,9 @@ class DHC_Alt_Text_Generator {
             $message = is_array( $body ) && ! empty( $body['error'] ) ? sanitize_text_field( $body['error'] ) : 'The Hub could not generate alt text.';
             wp_send_json_error( array( 'message' => $message, 'code' => $body['code'] ?? '' ), $code ?: 502 );
         }
-        if ( 202 !== $code && in_array( $body['status'] ?? '', array( 'succeeded', 'failed', 'refunded', 'refund_pending' ), true ) ) {
-            delete_transient( self::request_transient_key( $images ) );
+        $refund_pending = isset( $body['summary']['refund_pending_credits'] ) ? absint( $body['summary']['refund_pending_credits'] ) : 0;
+        if ( 202 !== $code && 0 === $refund_pending && in_array( $body['status'] ?? '', array( 'succeeded', 'failed', 'refunded' ), true ) ) {
+            delete_user_meta( get_current_user_id(), self::request_meta_key( $images ) );
         }
         wp_send_json_success( $body );
     }
