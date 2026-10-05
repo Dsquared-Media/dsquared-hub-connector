@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.20.0
+Stable tag: 1.21.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,21 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.21.1 =
+* Bind browser telemetry tokens to the current connector key and WordPress site; fail closed on invalid or stale credentials.
+* Revalidate privileged requests with the Hub even when subscription metadata is cached.
+* Clear derived telemetry and auth-cache state after key changes, deactivation, and uninstall.
+* Preserve the 1.20 Alt Text Generator and 1.21 AI Discovery features.
+* Deactivation retains the private key for reactivation. Uninstall removes local credentials but does not revoke remote Hub keys; permanent offboarding requires Hub revocation.
+
+= 1.21.0 =
+* Rebuilt AI Discovery with Auto, Append, and Manual llms.txt editing, curated links, preview, and validation.
+* Generate sectioned markdown links from indexable site content while excluding noindex and thank-you pages.
+* Publish valid AI crawler groups in robots.txt after existing directives.
+* Queue and batch IndexNow submissions, return the key file with HTTP 200, and add a manual all-URLs submit action.
+* Added authenticated Hub REST controls for reading, saving, regenerating, and submitting AI Discovery data.
+* Regenerate physical discovery files and UTF-8 response rules during plugin upgrades.
 
 = 1.20.0 =
 * Add a review-first Alt Text Generator inside WordPress admin.

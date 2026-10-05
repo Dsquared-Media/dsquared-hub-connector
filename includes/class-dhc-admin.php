@@ -28,6 +28,9 @@ class DHC_Admin {
         add_action( 'wp_ajax_dhc_validate_key', array( __CLASS__, 'ajax_validate_key' ) );
         add_action( 'wp_ajax_dhc_clear_activity_log', array( __CLASS__, 'ajax_clear_log' ) );
         add_action( 'wp_ajax_dhc_save_ai_discovery', array( __CLASS__, 'ajax_save_ai_discovery' ) );
+        add_action( 'wp_ajax_dhc_preview_ai_discovery', array( __CLASS__, 'ajax_preview_ai_discovery' ) );
+        add_action( 'wp_ajax_dhc_reset_ai_discovery', array( __CLASS__, 'ajax_reset_ai_discovery' ) );
+        add_action( 'wp_ajax_dhc_submit_indexnow_all', array( __CLASS__, 'ajax_submit_indexnow_all' ) );
         add_action( 'wp_ajax_dhc_scrape_website', array( __CLASS__, 'ajax_scrape_website' ) );
     }
 
@@ -202,6 +205,14 @@ class DHC_Admin {
         if ( empty( $ai_profile ) ) {
             $ai_profile = get_option( 'dhc_ai_business_profile', array() );
         }
+        $ai_editor = get_option( 'dhc_ai_discovery_llms_settings', array() );
+        if ( ! is_array( $ai_editor ) ) $ai_editor = array();
+        $ai_editor = array_merge( array(
+            'version' => 2, 'mode' => 'auto', 'links' => array(), 'custom_content' => '',
+            'full_manual' => false, 'full_custom_content' => '', 'updated_at' => '',
+        ), $ai_editor );
+        $ai_validation = get_option( 'dhc_ai_discovery_last_validation', array() );
+        $ai_preview = is_readable( ABSPATH . 'llms.txt' ) ? (string) file_get_contents( ABSPATH . 'llms.txt' ) : '';
         $last_heartbeat = get_option( 'dhc_last_heartbeat', array() );
 		$crawler_diagnostics = class_exists( 'DHC_Crawler' ) ? DHC_Crawler::get_diagnostics() : array();
 		$crawler_next_run = class_exists( 'DHC_Crawler' ) ? wp_next_scheduled( DHC_Crawler::CRON_HOOK ) : false;
@@ -484,7 +495,6 @@ class DHC_Admin {
                         </div>
                         <div id="dhc-sync-status" class="dhc-status-msg" style="margin-bottom:12px;"></div>
                     </div>
-                    </div>
                     <div class="dhc-card-body">
                         <div class="dhc-field">
                             <label for="dhc-biz-name"><?php esc_html_e( 'Business Name', 'dsquared-hub-connector' ); ?></label>
@@ -525,12 +535,69 @@ class DHC_Admin {
                             <label for="dhc-biz-extra"><?php esc_html_e( 'Additional Info', 'dsquared-hub-connector' ); ?></label>
                             <textarea id="dhc-biz-extra" class="dhc-input dhc-textarea" rows="3" placeholder="<?php esc_attr_e( 'Certifications, brands carried, years in business, unique selling points, etc.', 'dsquared-hub-connector' ); ?>"><?php echo esc_textarea( $ai_profile['extra_info'] ?? '' ); ?></textarea>
                         </div>
-                        <div class="dhc-actions">
-                            <button type="button" class="dhc-btn dhc-btn-primary" id="dhc-save-ai-discovery"><?php esc_html_e( 'Save & Generate Files', 'dsquared-hub-connector' ); ?></button>
-                            <span id="dhc-ai-discovery-status" class="dhc-status-msg"></span>
+                    </div>
+                </div>
+
+                <div class="dhc-card dhc-ai-editor-card">
+                    <div class="dhc-card-header">
+                        <h2><?php esc_html_e( 'llms.txt Editor', 'dsquared-hub-connector' ); ?></h2>
+                        <p class="dhc-card-desc"><?php esc_html_e( 'Choose how the file is built, curate important pages, preview the exact output, and validate every published link.', 'dsquared-hub-connector' ); ?></p>
+                    </div>
+                    <div class="dhc-card-body">
+                        <fieldset class="dhc-mode-switch" aria-label="<?php esc_attr_e( 'llms.txt generation mode', 'dsquared-hub-connector' ); ?>">
+                            <?php foreach ( array( 'auto' => 'Auto-generate', 'append' => 'Auto-generate + append my text', 'manual' => 'Use my file exactly as written' ) as $value => $label ) : ?>
+                                <label><input type="radio" name="dhc-llms-mode" value="<?php echo esc_attr( $value ); ?>" <?php checked( $ai_editor['mode'], $value ); ?>> <span><?php echo esc_html( $label ); ?></span></label>
+                            <?php endforeach; ?>
+                        </fieldset>
+
+                        <div class="dhc-editor-section">
+                            <div class="dhc-editor-section-head">
+                                <div><h3><?php esc_html_e( 'Curated links', 'dsquared-hub-connector' ); ?></h3><p><?php esc_html_e( 'These appear first. The plugin fills remaining sections with eligible published pages and posts.', 'dsquared-hub-connector' ); ?></p></div>
+                                <button type="button" class="dhc-btn dhc-btn-outline" id="dhc-add-llms-link">+ <?php esc_html_e( 'Add link', 'dsquared-hub-connector' ); ?></button>
+                            </div>
+                            <div class="dhc-llms-links" id="dhc-llms-links">
+                                <?php foreach ( (array) $ai_editor['links'] as $link ) : ?>
+                                    <div class="dhc-llms-link-row">
+                                        <label><span><?php esc_html_e( 'Title', 'dsquared-hub-connector' ); ?></span><input class="dhc-input dhc-link-title" type="text" value="<?php echo esc_attr( $link['title'] ?? '' ); ?>"></label>
+                                        <label class="dhc-link-url-wrap"><span><?php esc_html_e( 'URL', 'dsquared-hub-connector' ); ?></span><input class="dhc-input dhc-link-url" type="url" value="<?php echo esc_attr( $link['url'] ?? '' ); ?>"></label>
+                                        <label class="dhc-link-description-wrap"><span><?php esc_html_e( 'Description', 'dsquared-hub-connector' ); ?></span><input class="dhc-input dhc-link-description" type="text" value="<?php echo esc_attr( $link['description'] ?? '' ); ?>"></label>
+                                        <label><span><?php esc_html_e( 'Section', 'dsquared-hub-connector' ); ?></span><select class="dhc-input dhc-link-section"><?php foreach ( array( 'Key Pages', 'Services', 'Locations', 'Blog/Resources', 'Contact' ) as $section ) : ?><option <?php selected( $link['section'] ?? '', $section ); ?>><?php echo esc_html( $section ); ?></option><?php endforeach; ?></select></label>
+                                        <label><span><?php esc_html_e( 'Order', 'dsquared-hub-connector' ); ?></span><input class="dhc-input dhc-link-order" type="number" min="0" max="9999" value="<?php echo esc_attr( $link['sort_order'] ?? 0 ); ?>"></label>
+                                        <label class="dhc-link-enabled"><input class="dhc-link-on" type="checkbox" <?php checked( ! empty( $link['enabled'] ) ); ?>> <span><?php esc_html_e( 'On', 'dsquared-hub-connector' ); ?></span></label>
+                                        <button type="button" class="dhc-link-remove" aria-label="<?php esc_attr_e( 'Remove link', 'dsquared-hub-connector' ); ?>">&times;</button>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <p id="dhc-llms-links-empty" class="dhc-field-hint" <?php echo ! empty( $ai_editor['links'] ) ? 'hidden' : ''; ?>><?php esc_html_e( 'No curated links yet. Auto mode will discover eligible published content.', 'dsquared-hub-connector' ); ?></p>
+                        </div>
+
+                        <div class="dhc-field dhc-custom-content-wrap">
+                            <label for="dhc-llms-custom-content"><?php esc_html_e( 'Custom llms.txt content', 'dsquared-hub-connector' ); ?></label>
+                            <textarea id="dhc-llms-custom-content" class="dhc-input dhc-textarea dhc-code-input" rows="10" placeholder="# Business Name"><?php echo esc_textarea( $ai_editor['custom_content'] ); ?></textarea>
+                        </div>
+                        <div class="dhc-field">
+                            <label class="dhc-check-label"><input type="checkbox" id="dhc-llms-full-manual" <?php checked( ! empty( $ai_editor['full_manual'] ) ); ?>> <?php esc_html_e( 'Use custom content for llms-full.txt', 'dsquared-hub-connector' ); ?></label>
+                            <textarea id="dhc-llms-full-content" class="dhc-input dhc-textarea dhc-code-input" rows="10" placeholder="# Complete Business Profile" <?php echo empty( $ai_editor['full_manual'] ) ? 'hidden' : ''; ?>><?php echo esc_textarea( $ai_editor['full_custom_content'] ); ?></textarea>
+                        </div>
+
+                        <div class="dhc-preview-grid">
+                            <section><h3><?php esc_html_e( 'Final llms.txt preview', 'dsquared-hub-connector' ); ?></h3><pre id="dhc-llms-preview"><?php echo esc_html( $ai_preview ); ?></pre></section>
+                            <section><h3><?php esc_html_e( 'Validation', 'dsquared-hub-connector' ); ?></h3><div id="dhc-llms-validation">
+                                <?php if ( empty( $ai_validation ) ) : ?><p class="dhc-validation-empty"><?php esc_html_e( 'Preview to check Markdown, HTTP status, noindex rules, and file size.', 'dsquared-hub-connector' ); ?></p><?php else : ?>
+                                    <?php foreach ( array( 'markdown', 'links', 'noindex', 'size' ) as $check ) : $row = $ai_validation[ $check ] ?? array(); ?><div class="dhc-validation-row <?php echo ! empty( $row['ok'] ) ? 'is-valid' : 'is-invalid'; ?>"><span class="dashicons <?php echo ! empty( $row['ok'] ) ? 'dashicons-yes-alt' : 'dashicons-warning'; ?>"></span><span><?php echo esc_html( $row['message'] ?? ucfirst( $check ) ); ?></span></div><?php endforeach; ?>
+                                <?php endif; ?>
+                            </div></section>
+                        </div>
+
+                        <div class="dhc-actions dhc-editor-actions">
+                            <button type="button" class="dhc-btn dhc-btn-outline" id="dhc-preview-ai-discovery"><?php esc_html_e( 'Preview & validate', 'dsquared-hub-connector' ); ?></button>
+                            <button type="button" class="dhc-btn dhc-btn-primary" id="dhc-save-ai-discovery"><?php esc_html_e( 'Save & Regenerate', 'dsquared-hub-connector' ); ?></button>
+                            <button type="button" class="dhc-btn dhc-btn-link" id="dhc-reset-ai-discovery"><?php esc_html_e( 'Reset to auto', 'dsquared-hub-connector' ); ?></button>
+                            <span id="dhc-ai-discovery-status" class="dhc-status-msg" role="status"></span>
                         </div>
                     </div>
                 </div>
+
 
                 <div class="dhc-card">
                     <div class="dhc-card-header">
@@ -550,6 +617,10 @@ class DHC_Admin {
                                 <span class="dhc-info-label"><?php esc_html_e( 'IndexNow Key', 'dsquared-hub-connector' ); ?></span>
                                 <span class="dhc-info-value dhc-mono"><?php echo esc_html( get_option( 'dhc_indexnow_key', 'Not generated yet' ) ); ?></span>
                             </div>
+                        </div>
+                        <div class="dhc-actions" style="margin-top:16px;">
+                            <button type="button" class="dhc-btn dhc-btn-outline" id="dhc-submit-indexnow-all"><?php esc_html_e( 'Submit all public URLs now', 'dsquared-hub-connector' ); ?></button>
+                            <span id="dhc-indexnow-status" class="dhc-status-msg" role="status"></span>
                         </div>
                     </div>
                 </div>
@@ -727,7 +798,26 @@ class DHC_Admin {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( esc_html__( 'Unauthorized', 'dsquared-hub-connector' ) );
         }
+        if ( ! DHC_API_Key::is_module_available( 'ai_discovery' ) ) {
+            wp_send_json_error( esc_html__( 'AI Discovery is not available on the current subscription.', 'dsquared-hub-connector' ) );
+        }
 
+        $profile = self::ai_profile_from_request();
+        update_option( 'dhc_ai_business_profile', $profile );
+        update_option( 'dhc_business_profile', $profile );
+        $settings = json_decode( wp_unslash( $_POST['settings'] ?? '{}' ), true );
+        $ai = DHC_AI_Discovery::init();
+        $saved = $ai->save_editor_settings( is_array( $settings ) ? $settings : array(), 'admin' );
+        if ( is_wp_error( $saved['files'] ) ) wp_send_json_error( $saved['files']->get_error_message() );
+
+        if ( class_exists( 'DHC_Event_Logger' ) ) {
+            DHC_Event_Logger::ai_discovery( 'profile_saved', array( 'source' => 'admin_form', 'time' => current_time( 'mysql' ) ), 'AI Discovery profile and editor saved from admin' );
+        }
+        wp_send_json_success( array( 'message' => esc_html__( 'Saved, regenerated, and validated.', 'dsquared-hub-connector' ),
+            'rendered' => $saved['rendered'], 'validation' => $saved['validation'], 'settings' => $saved['settings'] ) );
+    }
+
+    private static function ai_profile_from_request() {
         $profile = array(
             'business_name'      => sanitize_text_field( wp_unslash( $_POST['business_name'] ?? '' ) ),
             'description'        => sanitize_textarea_field( wp_unslash( $_POST['description'] ?? '' ) ),
@@ -743,26 +833,37 @@ class DHC_Admin {
         // Parse services and areas from text
         $profile['services'] = array_filter( array_map( 'trim', explode( "\n", $profile['services_text'] ) ) );
         $profile['service_areas'] = array_filter( array_map( 'trim', explode( "\n", $profile['service_areas_text'] ) ) );
+        return $profile;
+    }
 
-        // Save to both option names for compatibility
-        update_option( 'dhc_ai_business_profile', $profile );
-        update_option( 'dhc_business_profile', $profile );
+    public static function ajax_preview_ai_discovery() {
+        check_ajax_referer( 'dhc_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( esc_html__( 'Unauthorized', 'dsquared-hub-connector' ) );
+        if ( ! DHC_API_Key::is_module_available( 'ai_discovery' ) ) wp_send_json_error( esc_html__( 'AI Discovery is not available on the current subscription.', 'dsquared-hub-connector' ) );
+        $settings = json_decode( wp_unslash( $_POST['settings'] ?? '{}' ), true );
+        $ai = DHC_AI_Discovery::init();
+        $settings = $ai->sanitize_editor_settings( is_array( $settings ) ? $settings : array() );
+        $rendered = $ai->render_files( self::ai_profile_from_request(), $settings );
+        $validation = $ai->validate_rendered_files( $rendered, true );
+        wp_send_json_success( array( 'rendered' => $rendered, 'validation' => $validation ) );
+    }
 
-        // Regenerate llms.txt files if the AI Discovery class has the method
-        if ( class_exists( 'DHC_AI_Discovery' ) && method_exists( 'DHC_AI_Discovery', 'regenerate_files' ) ) {
-            DHC_AI_Discovery::regenerate_files( $profile );
-        }
+    public static function ajax_reset_ai_discovery() {
+        check_ajax_referer( 'dhc_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( esc_html__( 'Unauthorized', 'dsquared-hub-connector' ) );
+        if ( ! DHC_API_Key::is_module_available( 'ai_discovery' ) ) wp_send_json_error( esc_html__( 'AI Discovery is not available on the current subscription.', 'dsquared-hub-connector' ) );
+        $reset = DHC_AI_Discovery::init()->reset_editor_settings( 'admin' );
+        if ( is_wp_error( $reset['files'] ) ) wp_send_json_error( $reset['files']->get_error_message() );
+        wp_send_json_success( array( 'message' => esc_html__( 'Reset to automatic generation.', 'dsquared-hub-connector' ),
+            'rendered' => $reset['rendered'], 'validation' => $reset['validation'], 'settings' => $reset['settings'] ) );
+    }
 
-        // Log the save event to the Hub
-        if ( class_exists( 'DHC_Event_Logger' ) ) {
-            DHC_Event_Logger::ai_discovery(
-                'profile_saved',
-                array( 'source' => 'admin_form', 'time' => current_time( 'mysql' ) ),
-                'AI Discovery business profile saved from admin'
-            );
-        }
-
-        wp_send_json_success( esc_html__( 'Business profile saved and AI discovery files regenerated.', 'dsquared-hub-connector' ) );
+    public static function ajax_submit_indexnow_all() {
+        check_ajax_referer( 'dhc_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( esc_html__( 'Unauthorized', 'dsquared-hub-connector' ) );
+        if ( ! DHC_API_Key::is_module_available( 'ai_discovery' ) ) wp_send_json_error( esc_html__( 'AI Discovery is not available on the current subscription.', 'dsquared-hub-connector' ) );
+        $result = DHC_AI_Discovery::init()->submit_all_public_urls( 'admin' );
+        wp_send_json_success( array( 'message' => sprintf( esc_html__( '%1$d public URLs found; %2$d are queued for batched submission.', 'dsquared-hub-connector' ), intval( $result['found'] ), intval( $result['queued'] ) ) ) );
     }
 
     /**
