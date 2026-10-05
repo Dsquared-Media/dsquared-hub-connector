@@ -178,7 +178,12 @@ test('serial fallback and legacy single fetch cap transfer bodies before parsing
       'gets' => $GLOBALS['gets'],
     ));
   `;
-  const result = JSON.parse(execFileSync('php', ['-n', '-r', php], { encoding: 'utf8' }));
+  // Keep optional transports disabled, but retain JSON for fixture output on
+  // PHP 7.4 distributions where it is a shared extension rather than built in.
+  const isolatedArgs = ['-n'];
+  const hasJson = execFileSync('php', ['-n', '-r', 'echo function_exists("json_encode") ? "1" : "0";'], { encoding: 'utf8' });
+  if (hasJson === '0') isolatedArgs.push('-d', 'extension=json');
+  const result = JSON.parse(execFileSync('php', [...isolatedArgs, '-r', php], { encoding: 'utf8' }));
   assert.equal(result.gets.length, 3);
   for (const call of result.gets) {
     assert.equal(call.args.limit_response_size, 409601);
