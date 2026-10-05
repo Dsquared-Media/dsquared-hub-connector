@@ -58,6 +58,7 @@ test('legacy Brand Profile schema uses SportsClub only on the homepage and yield
     $canonical = '{invalid json';
     ob_start(); $discovery->inject_ai_schema(); $invalid_canonical = ob_get_clean();
     $type_method = new ReflectionMethod('DHC_AI_Discovery', 'schema_type_for_profile');
+    if (PHP_VERSION_ID < 80100) $type_method->setAccessible(true);
     $other = $type_method->invoke($discovery, array('business_type' => 'Painting Services', 'address' => '123 Main St'));
     $dentist = $type_method->invoke($discovery, array('business_type' => 'https://schema.org/Dentist', 'address' => '123 Main St'));
     echo json_encode(array('interior' => $interior, 'homepage' => $homepage, 'approved' => $approved,

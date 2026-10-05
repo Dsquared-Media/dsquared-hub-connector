@@ -89,6 +89,7 @@ test('auto discovery excludes thank-you slugs and common SEO noindex metadata', 
     require ${JSON.stringify(modulePath)};
     $d = new DHC_AI_Discovery();
     $m = new ReflectionMethod('DHC_AI_Discovery', 'post_is_indexable');
+    if (PHP_VERSION_ID < 80100) $m->setAccessible(true);
     $post = function($id, $slug) { return (object) array('ID' => $id, 'post_status' => 'publish', 'post_type' => 'page', 'post_name' => $slug); };
     echo json_encode(array(
       $m->invoke($d, $post(1, 'thank-you')),

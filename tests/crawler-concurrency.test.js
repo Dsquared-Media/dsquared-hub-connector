@@ -113,6 +113,7 @@ test('Requests multi results remain ordered and reject off-site and credential r
     require ${JSON.stringify(crawlerPath)};
     $crawler = DHC_Crawler::init();
     $method = new ReflectionMethod(DHC_Crawler::class, 'safe_fetch_batch');
+    if (PHP_VERSION_ID < 80100) $method->setAccessible(true);
     $urls = array(
       'https://example.test/slow-a',
       'https://example.test/redirect',
@@ -165,11 +166,13 @@ test('serial fallback and legacy single fetch cap transfer bodies before parsing
     require ${JSON.stringify(crawlerPath)};
     $crawler = DHC_Crawler::init();
     $multi = new ReflectionMethod(DHC_Crawler::class, 'request_multiple');
+    if (PHP_VERSION_ID < 80100) $multi->setAccessible(true);
     $multi->invoke($crawler, array(
       0 => 'https://example.test/a',
       1 => 'https://example.test/b'
     ), 2, microtime(true) + 5);
     $single = new ReflectionMethod(DHC_Crawler::class, 'safe_fetch');
+    if (PHP_VERSION_ID < 80100) $single->setAccessible(true);
     $single->invoke($crawler, 'https://example.test/legacy', 'example.test');
     echo json_encode(array(
       'gets' => $GLOBALS['gets'],
@@ -209,6 +212,7 @@ test('redirect rounds stop at the wall-clock deadline and return a partial resul
     require ${JSON.stringify(crawlerPath)};
     $crawler = DHC_Crawler::init();
     $method = new ReflectionMethod(DHC_Crawler::class, 'safe_fetch_batch');
+    if (PHP_VERSION_ID < 80100) $method->setAccessible(true);
     $started = microtime(true);
     $results = $method->invoke(
       $crawler,

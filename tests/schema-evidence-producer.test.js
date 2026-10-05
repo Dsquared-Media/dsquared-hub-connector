@@ -17,9 +17,12 @@ function extract(html) {
     require ${JSON.stringify(crawlerPath)};
     $crawler = DHC_Crawler::init();
     $method = new ReflectionMethod(DHC_Crawler::class, 'extract_schema_evidence');
+    if (PHP_VERSION_ID < 80100) $method->setAccessible(true);
     echo json_encode($method->invoke($crawler, base64_decode(${JSON.stringify(Buffer.from(html).toString('base64'))})));
   `;
-  return JSON.parse(execFileSync('php', ['-r', php], { encoding: 'utf8' }));
+  // Large HTML fixtures exceed Linux's per-argument limit; stdin preserves
+  // the exact fixture without depending on the host's command-line limits.
+  return JSON.parse(execFileSync('php', [], { input: `<?php\n${php}`, encoding: 'utf8' }));
 }
 
 test('producer emits bounded versioned connector_html evidence for valid JSON-LD', () => {

@@ -84,6 +84,7 @@ test('URL-scoped homepage schema does not render on an interior location page', 
     function get_permalink($id) { return 'https://theclubnj.com/marlboro/'; }
     require ${JSON.stringify(modulePath)};
     $method = new ReflectionMethod('DHC_Schema', 'global_entry_matches_page');
+    if (PHP_VERSION_ID < 80100) $method->setAccessible(true);
     $home = $method->invoke(null, array('url' => 'https://theclubnj.com/'));
     $marlboro = $method->invoke(null, array('url' => 'https://theclubnj.com/marlboro/'));
     $monroe = $method->invoke(null, array('url' => 'https://theclubnj.com/monroe/'));
