@@ -3,7 +3,7 @@
  * Plugin Name:       Dsquared Hub Connector
  * Plugin URI:        https://hub.dsquaredmedia.net
  * Description:       Connect your WordPress site to Dsquared Media Hub — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, AI discovery, content decay alerts, and lead capture. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
- * Version:           1.20.0
+ * Version:           1.21.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Dsquared Media
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Plugin constants ────────────────────────────────────────────────
-define( 'DHC_VERSION', '1.20.0' );
+define( 'DHC_VERSION', '1.21.1' );
 define( 'DHC_PLUGIN_FILE', __FILE__ );
 define( 'DHC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -181,9 +181,15 @@ add_action( 'dhc_auto_populate_profile', function() {
 // cron retry when dhc_telemetry_token is missing). The private dhc_api_key
 // must never appear in public page HTML.
 add_action( DHC_Heartbeat::TELEMETRY_PROVISION_HOOK, array( 'DHC_Heartbeat', 'maybe_provision_telemetry_token' ) );
+// These hooks also cover direct option writes (WP-CLI, imports, integrations).
+add_action( 'add_option_dhc_api_key', array( 'DHC_Heartbeat', 'connector_key_changed' ) );
+add_action( 'update_option_dhc_api_key', array( 'DHC_Heartbeat', 'connector_key_changed' ) );
+add_action( 'delete_option_dhc_api_key', array( 'DHC_Heartbeat', 'connector_key_changed' ) );
 
 // ── Deactivation hook ───────────────────────────────────────────────
 function dhc_deactivate() {
+    DHC_API_Key::clear_cache();
+    DHC_Heartbeat::clear_telemetry_state();
     // Clean up transients
     delete_transient( 'dhc_subscription_cache' );
     delete_transient( 'dhc_update_cache' );
@@ -202,6 +208,8 @@ function dhc_deactivate() {
         // v1.15 crawler
         DHC_Crawler::CRON_HOOK,
         DHC_Crawler::CONTINUE_HOOK,
+        DHC_AI_Discovery::INDEXNOW_CRON_HOOK,
+        DHC_AI_Discovery::REGENERATE_CRON_HOOK,
     );
     foreach ( $crons as $hook ) {
         $timestamp = wp_next_scheduled( $hook );
@@ -299,8 +307,11 @@ function dhc_init() {
         add_action( 'init', function() {
             flush_rewrite_rules( false );
             if ( class_exists( 'DHC_AI_Discovery' ) ) {
-                $ai = DHC_AI_Discovery::init();
-                if ( method_exists( $ai, 'regenerate_static_files' ) ) {
+                // Data migration is safe while lapsed and preserves legacy
+                // manual text without registering gated runtime hooks.
+                DHC_AI_Discovery::migrate_editor_settings_option();
+                if ( DHC_API_Key::is_module_available( 'ai_discovery' ) ) {
+                    $ai = DHC_AI_Discovery::init();
                     $ai->regenerate_static_files();
                 }
             }

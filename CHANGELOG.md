@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.21.1
+
+- Bind browser-visible narrow telemetry to the current private-key fingerprint and site; reject stale, malformed, or private-as-public values.
+- Revalidate privileged incoming requests with the Hub and fail closed on revocation or Hub outage.
+- Prevent a late provisioning response from restoring telemetry for a replaced private key.
+- Clear derived telemetry and current authentication-cache state on key changes, deactivation, and uninstall.
+- Preserve the 1.20 Alt Text Generator and 1.21 AI Discovery capabilities. No 1.22 feature work is included.
+- Deactivation intentionally retains the private key for reactivation. Uninstall removes local credentials only; remote Hub revocation remains a separate offboarding action.
+
+## 1.21.0
+
+- Rebuild the AI Discovery editor with Auto, Append, and Manual modes, curated link management, preview, validation, and reset controls.
+- Generate sectioned markdown links from indexable public content while excluding noindex and thank-you pages.
+- Append syntactically valid AI crawler groups to robots.txt without orphan directives.
+- Serve the IndexNow key with HTTP 200, queue and batch submissions, and expose a manual all-URLs submission action.
+- Add authenticated Hub REST endpoints for reading, saving, regenerating, and submitting AI Discovery data.
+- Regenerate physical discovery files and UTF-8 response rules on upgrade so existing sites do not need a manual save.
+
 ## 1.20.0
 
 - Add a review-first Alt Text Generator inside WordPress admin.
