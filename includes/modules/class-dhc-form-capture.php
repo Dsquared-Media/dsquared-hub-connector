@@ -579,6 +579,7 @@ class DHC_Form_Capture {
 
         if ( $count === false ) {
             set_transient( $key, 1, 300 ); // 5 minute window
+            if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $key, 300 );
             return false;
         }
 
@@ -587,6 +588,7 @@ class DHC_Form_Capture {
         }
 
         set_transient( $key, $count + 1, 300 );
+        if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $key, 300 );
         return false;
     }
 

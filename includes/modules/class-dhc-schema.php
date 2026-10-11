@@ -506,7 +506,9 @@ DHC_EDITOR_ASSETS;
 			if ( '' === $key ) wp_send_json_error( array( 'message' => 'The Hub asked for a protected business identity field. Update the site-wide profile instead.' ), 502 );
 			$clean['questions'][] = array( 'key' => $key, 'question' => sanitize_text_field( $question['question'] ?? $key ), 'answer' => sanitize_text_field( $question['answer'] ?? '' ) );
 		}
-        set_transient( 'dhc_schema_suggestion_' . get_current_user_id() . '_' . $post_id, $clean, 30 * MINUTE_IN_SECONDS );
+        $suggestion_key = 'dhc_schema_suggestion_' . get_current_user_id() . '_' . $post_id;
+        set_transient( $suggestion_key, $clean, 30 * MINUTE_IN_SECONDS );
+        if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $suggestion_key, 30 * MINUTE_IN_SECONDS );
         wp_send_json_success( $clean );
     }
 

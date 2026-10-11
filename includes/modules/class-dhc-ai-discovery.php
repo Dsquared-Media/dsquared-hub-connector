@@ -268,6 +268,10 @@ class DHC_AI_Discovery {
             if ( $ok !== false ) {
                 $written[] = $path;
                 @chmod( $path, 0644 );
+                $ownership = get_option( 'dhc_generated_file_ownership', array() );
+                if ( ! is_array( $ownership ) ) $ownership = array();
+                $ownership[ basename( $path ) ] = hash( 'sha256', $content );
+                update_option( 'dhc_generated_file_ownership', $ownership, false );
             } else {
                 $failed[] = $path;
             }
@@ -754,7 +758,9 @@ class DHC_AI_Discovery {
                 $result = array( 'ok' => false, 'status' => 'publish' === get_post_status( $post_id ) ? 200 : 404,
                     'noindex' => 'noindex' === $excluded, 'post_type' => (string) ( $post->post_type ?? '' ),
                     'reason' => $excluded, 'message' => $message );
-                set_transient( 'dhc_llms_link_v2_' . md5( strtolower( $url ) ), $result, 12 * HOUR_IN_SECONDS );
+                $cache_key = 'dhc_llms_link_v2_' . md5( strtolower( $url ) );
+                set_transient( $cache_key, $result, 12 * HOUR_IN_SECONDS );
+                if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $cache_key, 12 * HOUR_IN_SECONDS );
                 return $result;
             }
             $canonical = $this->canonical_url_for_post( $post );
@@ -762,13 +768,17 @@ class DHC_AI_Discovery {
                 $result = array( 'ok' => false, 'status' => 200, 'noindex' => false,
                     'post_type' => (string) $post->post_type, 'reason' => 'non_canonical',
                     'message' => $canonical ? 'Use the normal canonical permalink: ' . $canonical : 'This content does not have a normal public permalink.' );
-                set_transient( 'dhc_llms_link_v2_' . md5( strtolower( $url ) ), $result, 12 * HOUR_IN_SECONDS );
+                $cache_key = 'dhc_llms_link_v2_' . md5( strtolower( $url ) );
+                set_transient( $cache_key, $result, 12 * HOUR_IN_SECONDS );
+                if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $cache_key, 12 * HOUR_IN_SECONDS );
                 return $result;
             }
         } elseif ( untrailingslashit( $url ) !== untrailingslashit( home_url( '/' ) ) ) {
             $result = array( 'ok' => false, 'status' => 404, 'noindex' => false, 'post_type' => '',
                 'reason' => 'not_page_or_post', 'message' => 'Only the homepage and canonical URLs for published pages or posts can be included.' );
-            set_transient( 'dhc_llms_link_v2_' . md5( strtolower( $url ) ), $result, 12 * HOUR_IN_SECONDS );
+            $cache_key = 'dhc_llms_link_v2_' . md5( strtolower( $url ) );
+            set_transient( $cache_key, $result, 12 * HOUR_IN_SECONDS );
+            if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $cache_key, 12 * HOUR_IN_SECONDS );
             return $result;
         }
 
@@ -782,11 +792,13 @@ class DHC_AI_Discovery {
                 $result = array( 'ok' => true, 'status' => 200, 'noindex' => false,
                     'post_type' => (string) $post->post_type, 'message' => 'Published canonical page or post; live status is checked on preview or save.' );
                 set_transient( $cache_key, $result, 12 * HOUR_IN_SECONDS );
+                if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $cache_key, 12 * HOUR_IN_SECONDS );
                 return $result;
             }
         } elseif ( untrailingslashit( $url ) === untrailingslashit( home_url( '/' ) ) && ! $force ) {
             $result = array( 'ok' => true, 'status' => 200, 'noindex' => false, 'post_type' => 'page', 'message' => 'Homepage is published.' );
             set_transient( $cache_key, $result, 12 * HOUR_IN_SECONDS );
+            if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $cache_key, 12 * HOUR_IN_SECONDS );
             return $result;
         }
 
@@ -802,6 +814,7 @@ class DHC_AI_Discovery {
                 'message' => $noindex ? 'Target sends an X-Robots-Tag noindex header.' : ( 200 === $status ? 'URL returned 200.' : 'URL returned HTTP ' . $status . '.' ) );
         }
         set_transient( $cache_key, $result, 12 * HOUR_IN_SECONDS );
+        if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $cache_key, 12 * HOUR_IN_SECONDS );
         return $result;
     }
 

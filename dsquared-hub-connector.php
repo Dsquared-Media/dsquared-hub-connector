@@ -26,6 +26,29 @@ define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'DHC_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 define( 'DHC_HUB_API_BASE', 'https://hub.dsquaredmedia.net/api' );
 
+/**
+ * Track a plugin-owned dynamic transient so uninstall can clear external
+ * object caches as well as wp_options-backed transient rows.
+ *
+ * @param string $key        Transient key.
+ * @param int    $expiration Lifetime in seconds.
+ */
+function dhc_register_dynamic_transient( $key, $expiration ) {
+    if ( ! is_string( $key ) || 0 !== strpos( $key, 'dhc_' ) ) return;
+    $now      = time();
+    $registry = get_option( 'dhc_dynamic_transient_keys', array() );
+    if ( ! is_array( $registry ) ) $registry = array();
+    foreach ( $registry as $stored_key => $expires_at ) {
+        if ( ! is_string( $stored_key ) || (int) $expires_at <= $now ) unset( $registry[ $stored_key ] );
+    }
+    $registry[ $key ] = $now + max( 1, (int) $expiration );
+    if ( count( $registry ) > 2048 ) {
+        asort( $registry, SORT_NUMERIC );
+        $registry = array_slice( $registry, -2048, null, true );
+    }
+    update_option( 'dhc_dynamic_transient_keys', $registry, false );
+}
+
 // ── SVG Support conflict protection ─────────────────────────────────
 // Some servers are missing the php-xml extension (DOMDocument class).
 // The SVG Support plugin crashes when it tries to sanitize SVGs without it.
