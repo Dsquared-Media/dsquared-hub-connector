@@ -55,4 +55,3 @@ The source is not authorized for publication or installation merely because thes
 5. Obtain the owner's exact-SHA and exact-package approval before merge, tag, publication, or production installation.
 6. Promote the already-reviewed candidate bytes into a draft GitHub release. The release workflow must verify the tag commit, candidate run, bundled checksum, and approved SHA-256; it must never rebuild or clobber the ZIP.
 7. Publish the populated draft only after final owner approval. Publishing the draft must not trigger any asset-writing workflow.
-
