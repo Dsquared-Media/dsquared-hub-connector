@@ -535,11 +535,17 @@ class DHC_Form_Capture {
     /* ─── REST Routes ─── */
 
     public function register_routes() {
-        register_rest_route( 'dsquared-hub/v1', '/leads/stats', array(
+        $definition = array(
             'methods'  => 'GET',
             'callback' => array( $this, 'get_lead_stats' ),
             'permission_callback' => array( $this, 'check_api_key' ),
-        ) );
+        );
+
+        register_rest_route( 'dsquared-hub/v1', '/leads/stats', $definition );
+
+        // Retain the original public connector contract while routing it to
+        // the same live instance handler as the newer explicit stats path.
+        register_rest_route( 'dsquared-hub/v1', '/leads', $definition );
     }
 
     public function check_api_key( $request ) {
