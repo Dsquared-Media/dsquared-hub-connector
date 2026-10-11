@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.23.0
+
+- Rebuild the WordPress admin experience as 13 dedicated, ordered screens using the supplied Inter-based responsive design system.
+- Add dedicated Broken Links, Redirects, Forms, Tracking Scripts, Indexing, and Activity Log workflows while preserving existing Hub authentication and subscription gates.
+- Add a bounded local form inbox with detail view, spam controls, IP/source evidence, CSV export, and automatic `form_submit` tracking.
+- Add capability- and nonce-protected header/body/footer tracking scripts with device, placement, include, exclude, and post-type rules.
+- Add the same-origin Track Event visual picker for click, view, and hover custom events.
+- Separate SVGs into a manual-only Alt Text Generator workflow, add bulk selection controls, and use square five-column image cards.
+- Add page-specific AI schema suggestions with required-answer guards and explicit application to the canonical `_d2_custom_schema` field.
+- Expand the bounded Activity Log to cover WordPress logins, content changes, profile changes, plugin changes, upgrades, and Hub-driven actions without exporting secrets.
+- Keep AI Discovery, IndexNow, schema output, Site Health collection, event injection, tenant binding, and credit handling on their existing authoritative backends.
+
+## 1.22.0
+
+- Limit automatic `llms.txt` and `llms-full.txt` discovery to published, publicly queryable WordPress pages and posts with normal canonical permalinks.
+- Exclude Elementor Library templates, attachments, non-public post types, noindex content, and thank-you pages from generated discovery files and IndexNow all-URL submissions.
+- Classify automatic links by slug into Key Pages, Services, Locations, Blog/Resources, and Contact, while allowing a curated link to override its section.
+- Make validation fail explicitly when an Elementor Library URL or another unsupported content type appears.
+- Regenerate the physical discovery files during the normal in-place plugin upgrade to v1.22.0.
+
+## 1.21.0
+
+- Rebuild the AI Discovery editor with Auto, Append, and Manual modes, curated link management, preview, validation, and reset controls.
+- Generate sectioned markdown links from indexable public content while excluding noindex and thank-you pages.
+- Append syntactically valid AI crawler groups to robots.txt without orphan directives.
+- Serve the IndexNow key with HTTP 200, queue and batch submissions, and expose a manual all-URLs submission action.
+- Add authenticated Hub REST endpoints for reading, saving, regenerating, and submitting AI Discovery data.
+- Regenerate physical discovery files and UTF-8 response rules on upgrade so existing sites do not need a manual save.
+
 ## 1.20.0
 
 - Add a review-first Alt Text Generator inside WordPress admin.

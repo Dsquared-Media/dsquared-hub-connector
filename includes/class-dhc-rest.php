@@ -111,7 +111,7 @@ class DHC_REST {
         register_rest_route( self::NAMESPACE, '/ai-discovery', array(
             'methods'             => 'POST',
             'callback'            => array( 'DHC_AI_Discovery', 'handle_request' ),
-            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
+            'permission_callback' => array( 'DHC_AI_Discovery', 'check_legacy_api_access' ),
             'args'                => array(
                 'business_name' => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
                 'description'   => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_textarea_field' ),

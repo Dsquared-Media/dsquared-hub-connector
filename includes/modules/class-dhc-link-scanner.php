@@ -86,7 +86,8 @@ class DHC_Link_Scanner {
     }
 
     public static function ajax_add_redirect() {
-        check_ajax_referer( 'dhc_link_scanner', 'nonce' );
+        $nonce_ok = check_ajax_referer( 'dhc_link_scanner', 'nonce', false ) || check_ajax_referer( 'dhc_admin_nonce', 'nonce', false );
+        if ( ! $nonce_ok ) wp_send_json_error( array( 'message' => 'Security check failed.' ), 403 );
         if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( array( 'message' => 'Permission denied.' ) );
 
         $from   = isset( $_POST['from'] ) ? trim( (string) wp_unslash( $_POST['from'] ) ) : '';
@@ -99,24 +100,31 @@ class DHC_Link_Scanner {
         // Normalize from: must start with / and not include query/fragment.
         if ( strpos( $from, '/' ) !== 0 ) $from = '/' . $from;
         $from = strtok( $from, '?#' );
-        if ( ! in_array( $status, array( 301, 302, 307, 308 ), true ) ) $status = 301;
+        if ( ! in_array( $status, array( 301, 302 ), true ) ) $status = 301;
+		$replace_id = isset( $_POST['replace_id'] ) ? sanitize_text_field( wp_unslash( $_POST['replace_id'] ) ) : '';
 
         $redirects = self::get_redirects();
+		$replaced = null;
         // Reject dup
         foreach ( $redirects as $r ) {
+			if ( $replace_id && ( $r['id'] ?? '' ) === $replace_id ) { $replaced = $r; continue; }
             if ( rtrim( strtolower( $r['from'] ?? '' ), '/' ) === rtrim( strtolower( $from ), '/' ) ) {
                 wp_send_json_error( array( 'message' => 'A redirect for that path already exists.' ) );
             }
         }
 
-        $redirects[] = array(
-            'id'         => uniqid( 'r', true ),
+        $replacement = array(
+            'id'         => $replace_id ?: uniqid( 'r', true ),
             'from'       => $from,
             'to'         => $to,
             'status'     => $status,
-            'hits'       => 0,
-            'created_at' => current_time( 'mysql' ),
+            'hits'       => isset( $replaced['hits'] ) ? absint( $replaced['hits'] ) : 0,
+            'created_at' => ! empty( $replaced['created_at'] ) ? sanitize_text_field( $replaced['created_at'] ) : current_time( 'mysql' ),
         );
+		if ( $replace_id ) {
+			$redirects = array_values( array_filter( $redirects, function( $r ) use ( $replace_id ) { return ( $r['id'] ?? '' ) !== $replace_id; } ) );
+		}
+		$redirects[] = $replacement;
         if ( count( $redirects ) > self::MAX_REDIRECTS ) $redirects = array_slice( $redirects, -self::MAX_REDIRECTS );
         update_option( self::OPT_REDIRECTS, $redirects, false );
 
@@ -124,9 +132,10 @@ class DHC_Link_Scanner {
     }
 
     public static function ajax_delete_redirect() {
-        check_ajax_referer( 'dhc_link_scanner', 'nonce' );
+        $nonce_ok = check_ajax_referer( 'dhc_link_scanner', 'nonce', false ) || check_ajax_referer( 'dhc_admin_nonce', 'nonce', false );
+        if ( ! $nonce_ok ) wp_send_json_error( array( 'message' => 'Security check failed.' ), 403 );
         if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( array( 'message' => 'Permission denied.' ) );
-        $id = isset( $_POST['id'] ) ? (string) $_POST['id'] : '';
+        $id = isset( $_POST['id'] ) ? sanitize_text_field( wp_unslash( $_POST['id'] ) ) : '';
         if ( empty( $id ) ) wp_send_json_error( array( 'message' => 'Missing id' ) );
         $redirects = self::get_redirects();
         $filtered = array_values( array_filter( $redirects, function( $r ) use ( $id ) { return ( $r['id'] ?? '' ) !== $id; } ) );

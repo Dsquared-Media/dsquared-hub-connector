@@ -91,6 +91,10 @@ class DHC_API_Key {
                     'site_id' => sanitize_text_field( $body['site_id'] ?? '' ),
                     'site_url' => home_url( '/' ),
                     'key_hash' => hash( 'sha256', $api_key ),
+                    'credits_remaining' => isset( $body['credits_remaining'] ) ? absint( $body['credits_remaining'] ) : ( isset( $body['credit_balance'] ) ? absint( $body['credit_balance'] ) : null ),
+                    'credits_monthly'   => isset( $body['credits_monthly'] ) ? absint( $body['credits_monthly'] ) : ( isset( $body['monthly_credits'] ) ? absint( $body['monthly_credits'] ) : null ),
+                    'scan_worker'       => sanitize_text_field( $body['scan_worker'] ?? $body['worker_status'] ?? '' ),
+                    'last_scan_check'   => sanitize_text_field( $body['last_scan_check'] ?? $body['last_scan'] ?? '' ),
                 );
 
                 if ( ! empty( $subscription['expires'] ) ) {

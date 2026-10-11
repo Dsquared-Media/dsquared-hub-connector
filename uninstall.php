@@ -30,10 +30,21 @@ $options = array(
 
     // v1.5 Modules
     'dhc_ai_business_profile',
+    'dhc_business_profile',
     'dhc_indexnow_key',
+    'dhc_ai_discovery_llms_settings',
+    'dhc_ai_discovery_last_validation',
+    'dhc_ai_discovery_indexnow_queue',
+    'dhc_ai_discovery_indexnow_last_submit',
     'dhc_content_decay_results',
     'dhc_lead_stats',
     'dhc_lead_monthly_count',
+	'dhc_form_inbox',
+    'dhc_tracking_scripts',
+    'dhc_dashboard_events',
+    'dhc_indexing_live_validation',
+    'dhc_indexnow_last_status',
+	'dhc_event_tracker',
 );
 
 foreach ( $options as $option ) {
@@ -49,7 +60,7 @@ global $wpdb;
 $wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key LIKE '_dhc\_%'" );
 
 // ── Remove scheduled cron events ────────────────────────────
-$crons = array( 'dhc_content_decay_scan', 'dhc_monthly_lead_reset', 'dhc_provision_telemetry_token', 'dhc_crawler_poll', 'dhc_crawler_continue' );
+$crons = array( 'dhc_content_decay_scan', 'dhc_monthly_lead_reset', 'dhc_provision_telemetry_token', 'dhc_crawler_poll', 'dhc_crawler_continue', 'dhc_ai_discovery_flush_indexnow', 'dhc_ai_discovery_daily_regenerate' );
 foreach ( $crons as $hook ) {
     $timestamp = wp_next_scheduled( $hook );
     if ( $timestamp ) {

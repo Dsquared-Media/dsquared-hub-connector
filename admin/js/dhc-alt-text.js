@@ -55,6 +55,7 @@
 
     function updateSummary() {
         const count = state.selected.size;
+        const aiCount = Array.from(state.selected).filter(id => !state.items.get(id)?.is_svg).length;
         const priced = state.quote.available === true;
         const unlimited = priced && state.quote.unlimited === true;
         const unit = unlimited ? 0 : Math.max(1, Number(state.quote.unit_credits) || 1);
@@ -66,11 +67,11 @@
         el('dhc-alt-action-detail').textContent = count
             ? (!priced ? 'Your exact website credit quote appears before generation.' : unlimited ? 'AI generation is included for this website; saving reviewed drafts is free.' : `Exact quote: ${state.quote.total_credits} credit${state.quote.total_credits === 1 ? '' : 's'}; saving reviewed drafts is free.`)
             : dhcAltText.messages.noAutomaticSave;
-        generate.textContent = count
-            ? `Generate ${count} draft${count === 1 ? '' : 's'}${priced ? ` · ${unlimited ? 'included' : `${state.quote.total_credits} credit${state.quote.total_credits === 1 ? '' : 's'}`}` : ''}`
+        generate.textContent = aiCount
+            ? `Generate ${aiCount} draft${aiCount === 1 ? '' : 's'}${priced ? ` · ${unlimited ? 'included' : `${state.quote.total_credits} credit${state.quote.total_credits === 1 ? '' : 's'}`}` : ''}`
             : dhcAltText.messages.generate;
-        const overLimit = count > Math.min(20, Number(state.quote.max_batch) || 20);
-        generate.disabled = state.loading || !count || overLimit || !dhcAltText.connected;
+        const overLimit = aiCount > Math.min(20, Number(state.quote.max_batch) || 20);
+        generate.disabled = state.loading || !aiCount || overLimit || !dhcAltText.connected;
         save.disabled = state.loading || !selectedSavable().length;
         clear.disabled = state.loading || !count;
         if (overLimit) showNotice(`Select no more than ${state.quote.max_batch} images for one generation batch.`, 'warning');
@@ -119,6 +120,7 @@
         image.alt = '';
         image.loading = 'lazy';
         imageWrap.appendChild(image);
+        if (item.is_svg) imageWrap.appendChild(create('span', 'dhc-alt-svg-badge', 'SVG'));
 
         const body = create('div', 'dhc-alt-card-body');
         const filename = create('strong', 'dhc-alt-filename', item.filename || item.title || `Media ${item.id}`);
@@ -126,31 +128,35 @@
         const existing = create('p', 'dhc-alt-existing');
         existing.append(create('span', '', 'Current: '), document.createTextNode(item.alt_text || 'No alt text'));
 
-        const modeLabel = create('label', 'dhc-alt-field-label', 'Treatment');
-        const mode = document.createElement('select');
-        mode.className = 'dhc-input dhc-alt-classification';
-        mode.innerHTML = '<option value="">Choose after review</option><option value="usable">Descriptive alt text</option><option value="decorative">Decorative image (empty alt)</option>';
-        mode.value = item.classification || '';
-        mode.addEventListener('change', () => {
-            item.classification = mode.value;
-            item.dirty = true;
-            textarea.disabled = mode.value === 'decorative';
-            if (mode.value === 'decorative') textarea.value = '';
-            item.draft = textarea.value;
-            state.selected.add(item.id);
-            checkbox.checked = true;
-            article.classList.add('is-selected');
-            updateCount();
-            updateSummary();
-        });
-        modeLabel.appendChild(mode);
+        let modeLabel = null;
+        let mode = null;
+        if (!item.is_svg) {
+            modeLabel = create('label', 'dhc-alt-field-label', 'Treatment');
+            mode = document.createElement('select');
+            mode.className = 'dhc-input dhc-alt-classification';
+            mode.innerHTML = '<option value="">Choose after review</option><option value="usable">Descriptive alt text</option><option value="decorative">Decorative image (empty alt)</option>';
+            mode.value = item.classification || '';
+            mode.addEventListener('change', () => {
+                item.classification = mode.value;
+                item.dirty = true;
+                textarea.disabled = mode.value === 'decorative';
+                if (mode.value === 'decorative') textarea.value = '';
+                item.draft = textarea.value;
+                state.selected.add(item.id);
+                checkbox.checked = true;
+                article.classList.add('is-selected');
+                updateCount();
+                updateSummary();
+            });
+            modeLabel.appendChild(mode);
+        }
 
         const textLabel = create('label', 'dhc-alt-field-label', 'Reviewed alt text');
         const textarea = document.createElement('textarea');
         textarea.className = 'dhc-input dhc-alt-edit';
         textarea.rows = 3;
         textarea.maxLength = 125;
-        textarea.placeholder = 'Generated draft appears here. You can edit it before saving.';
+        textarea.placeholder = item.is_svg ? 'Write alt text manually for this SVG.' : 'Generated draft appears here. You can edit it before saving.';
         textarea.value = item.draft || '';
         textarea.disabled = item.classification === 'decorative';
         const count = create('span', 'dhc-alt-char-count', `${textarea.value.length}/125`);
@@ -164,7 +170,7 @@
             item.dirty = true;
             if (!item.classification) {
                 item.classification = 'usable';
-                mode.value = 'usable';
+                if (mode) mode.value = 'usable';
             }
             state.selected.add(item.id);
             checkbox.checked = true;
@@ -180,7 +186,10 @@
             status.textContent = item.status.text || '';
         }
 
-        body.append(filename, existing, modeLabel, textLabel, status);
+        body.append(filename, existing);
+        if (item.is_svg) body.append(create('p', 'dhc-alt-svg-note', 'AI can’t read SVGs — write alt text manually.'));
+        else body.append(modeLabel);
+        body.append(textLabel, status);
         article.append(selectLabel, imageWrap, body);
         article.classList.toggle('is-selected', state.selected.has(item.id));
         return article;
@@ -220,6 +229,7 @@
             state.totalPages = Number(data.total_pages) || 1;
             state.quote = data.quote || state.quote;
             el('dhc-alt-missing').textContent = String(data.missing_total || 0);
+            el('dhc-alt-svg').textContent = String(data.svg_total || 0);
             (data.images || []).forEach(image => state.items.set(Number(image.id), {
                 ...image,
                 id: Number(image.id),
@@ -239,7 +249,7 @@
     }
 
     async function generateDrafts() {
-        const ids = Array.from(state.selected);
+        const ids = Array.from(state.selected).filter(id => !state.items.get(id)?.is_svg);
         if (!ids.length || state.loading) return;
         hideNotice();
         setBusy(true);
@@ -345,6 +355,7 @@
         Array.from(state.items.keys()).slice(0, limit).forEach(id => state.selected.add(id));
         renderAll();
     });
+    el('dhc-alt-select-none').addEventListener('click', () => { state.selected.clear(); renderAll(); });
     loadMore.addEventListener('click', () => { state.page += 1; loadInventory(true); });
     clear.addEventListener('click', () => { state.selected.clear(); renderAll(); });
     generate.addEventListener('click', generateDrafts);

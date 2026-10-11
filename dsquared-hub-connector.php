@@ -3,7 +3,7 @@
  * Plugin Name:       Dsquared Hub Connector
  * Plugin URI:        https://hub.dsquaredmedia.net
  * Description:       Connect your WordPress site to Dsquared Media Hub — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, AI discovery, content decay alerts, and lead capture. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
- * Version:           1.20.0
+ * Version:           1.23.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Dsquared Media
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Plugin constants ────────────────────────────────────────────────
-define( 'DHC_VERSION', '1.20.0' );
+define( 'DHC_VERSION', '1.23.0' );
 define( 'DHC_PLUGIN_FILE', __FILE__ );
 define( 'DHC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -53,6 +53,7 @@ if ( version_compare( PHP_VERSION, '7.4', '<' ) ) {
 require_once DHC_PLUGIN_DIR . 'includes/class-dhc-api-key.php';
 require_once DHC_PLUGIN_DIR . 'includes/class-dhc-rest.php';
 require_once DHC_PLUGIN_DIR . 'includes/class-dhc-admin.php';
+require_once DHC_PLUGIN_DIR . 'includes/class-dhc-admin-pages.php';
 require_once DHC_PLUGIN_DIR . 'includes/class-dhc-updater.php';
 require_once DHC_PLUGIN_DIR . 'includes/class-dhc-privacy.php';
 require_once DHC_PLUGIN_DIR . 'includes/class-dhc-core.php';
@@ -72,6 +73,7 @@ require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-site-health.php';
 require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-ai-discovery.php';
 require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-content-decay.php';
 require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-form-capture.php';
+require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-tracking-scripts.php';
 
 // v1.9 Modules
 require_once DHC_PLUGIN_DIR . 'includes/modules/class-dhc-media.php';
@@ -202,6 +204,8 @@ function dhc_deactivate() {
         // v1.15 crawler
         DHC_Crawler::CRON_HOOK,
         DHC_Crawler::CONTINUE_HOOK,
+        DHC_AI_Discovery::INDEXNOW_CRON_HOOK,
+        DHC_AI_Discovery::REGENERATE_CRON_HOOK,
     );
     foreach ( $crons as $hook ) {
         $timestamp = wp_next_scheduled( $hook );
@@ -247,11 +251,19 @@ register_deactivation_hook( __FILE__, 'dhc_deactivate' );
 // ── Initialize the plugin ───────────────────────────────────────────
 function dhc_init() {
     DHC_Core::get_instance();
+    if ( class_exists( 'DHC_Event_Logger' ) ) DHC_Event_Logger::init();
+	$dhc_modules = get_option( 'dhc_modules', array() );
+	if ( ! empty( $dhc_modules['disable_comments'] ) ) {
+		add_filter( 'comments_open', '__return_false', 50 );
+		add_filter( 'pings_open', '__return_false', 50 );
+		add_filter( 'comments_array', '__return_empty_array', 50 );
+	}
 
     // v1.10 module hooks — register cron actions + analytics injection
     if ( class_exists( 'DHC_Inventory' ) )      DHC_Inventory::init();
     if ( class_exists( 'DHC_Analytics' ) )      DHC_Analytics::init();
     if ( class_exists( 'DHC_Event_Tracker' ) )  DHC_Event_Tracker::init();
+    if ( class_exists( 'DHC_Tracking_Scripts' ) ) DHC_Tracking_Scripts::init();
     if ( class_exists( 'DHC_Link_Scanner' ) ) DHC_Link_Scanner::init();
 
     // Self-heal crons on every admin load — if another plugin or a
@@ -299,8 +311,11 @@ function dhc_init() {
         add_action( 'init', function() {
             flush_rewrite_rules( false );
             if ( class_exists( 'DHC_AI_Discovery' ) ) {
-                $ai = DHC_AI_Discovery::init();
-                if ( method_exists( $ai, 'regenerate_static_files' ) ) {
+                // Data migration is safe while lapsed and preserves legacy
+                // manual text without registering gated runtime hooks.
+                DHC_AI_Discovery::migrate_editor_settings_option();
+                if ( DHC_API_Key::is_module_available( 'ai_discovery' ) ) {
+                    $ai = DHC_AI_Discovery::init();
                     $ai->regenerate_static_files();
                 }
             }

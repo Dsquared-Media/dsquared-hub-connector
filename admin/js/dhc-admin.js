@@ -14,26 +14,13 @@
         $('#tab-' + tab).addClass('active');
     });
 
-    // Toggle API key visibility
-    $(document).on('click', '#dhc-toggle-key', function() {
-        var input = $('#dhc-api-key');
-        var icon = $(this).find('.dashicons');
-        if (input.attr('type') === 'password') {
-            input.attr('type', 'text');
-            icon.css('color', '#5661ff');
-        } else {
-            input.attr('type', 'password');
-            icon.css('color', '');
-        }
-    });
-
     // Save & Validate API key
     $(document).on('click', '#dhc-save-key', function() {
         var btn = $(this);
         var status = $('#dhc-key-status');
         var apiKey = $('#dhc-api-key').val().trim();
 
-        if (!apiKey) {
+        if (!apiKey && $('#dhc-api-key').data('has-key') !== 1) {
             status.text('Please enter an API key.').removeClass('success').addClass('error');
             return;
         }
@@ -78,7 +65,7 @@
             nonce: dhcAdmin.nonce,
             modules: modules
         }, function(response) {
-            btn.prop('disabled', false).text('Save Module Settings');
+            btn.prop('disabled', false).text('Save module settings');
             if (response.success) {
                 status.text('Settings saved!').addClass('success').removeClass('error');
                 setTimeout(function() { status.text(''); }, 3000);
@@ -86,21 +73,36 @@
                 status.text(response.data || 'Save failed.').addClass('error').removeClass('success');
             }
         }).fail(function() {
-            btn.prop('disabled', false).text('Save Module Settings');
+            btn.prop('disabled', false).text('Save module settings');
             status.text('Network error.').addClass('error').removeClass('success');
         });
     });
 
-    // Save AI Discovery business profile
-    $(document).on('click', '#dhc-save-ai-discovery', function() {
-        var btn = $(this);
-        var status = $('#dhc-ai-discovery-status');
+    function llmsSettings() {
+        var links = [];
+        $('.dhc-llms-link-row').each(function() {
+            var row = $(this);
+            links.push({
+                title: row.find('.dhc-link-title').val() || '',
+                url: row.find('.dhc-link-url').val() || '',
+                description: row.find('.dhc-link-description').val() || '',
+                section: row.find('.dhc-link-section').val() || 'Key Pages',
+                sort_order: parseInt(row.find('.dhc-link-order').val(), 10) || 0,
+                enabled: row.find('.dhc-link-on').is(':checked')
+            });
+        });
+        return {
+            mode: $('input[name="dhc-llms-mode"]:checked').val() || 'auto',
+            links: links,
+            custom_content: $('#dhc-llms-custom-content').val() || '',
+            full_manual: $('#dhc-llms-full-manual').is(':checked'),
+            full_custom_content: $('#dhc-llms-full-content').val() || ''
+        };
+    }
 
-        btn.prop('disabled', true).text('Saving & Generating...');
-        status.text('').removeClass('success error');
-
-        $.post(dhcAdmin.ajaxUrl, {
-            action: 'dhc_save_ai_discovery',
+    function aiProfilePayload(action) {
+        return {
+            action: action,
             nonce: dhcAdmin.nonce,
             business_name: $('#dhc-biz-name').val(),
             description: $('#dhc-biz-desc').val(),
@@ -110,19 +112,104 @@
             address: $('#dhc-biz-address').val(),
             service_areas_text: $('#dhc-biz-areas').val(),
             hours: $('#dhc-biz-hours').val(),
-            extra_info: $('#dhc-biz-extra').val()
-        }, function(response) {
-            btn.prop('disabled', false).text('Save & Generate Files');
-            if (response.success) {
-                status.text(response.data || 'Profile saved and files generated!').addClass('success').removeClass('error');
-                setTimeout(function() { status.text(''); }, 4000);
-            } else {
-                status.text(response.data || 'Save failed.').addClass('error').removeClass('success');
-            }
-        }).fail(function() {
-            btn.prop('disabled', false).text('Save & Generate Files');
-            status.text('Network error.').addClass('error').removeClass('success');
+            extra_info: $('#dhc-biz-extra').val(),
+            settings: JSON.stringify(llmsSettings())
+        };
+    }
+
+    function renderValidation(validation) {
+        var panel = $('#dhc-llms-validation').empty();
+        ['markdown', 'links', 'noindex', 'post_types', 'size'].forEach(function(key) {
+            var row = validation && validation[key] ? validation[key] : { ok: false, message: key };
+            $('<div>', { class: 'dhc-validation-row ' + (row.ok ? 'is-valid' : 'is-invalid') })
+                .append($('<span>', { class: 'dashicons ' + (row.ok ? 'dashicons-yes-alt' : 'dashicons-warning') }))
+                .append($('<span>').text(row.message || key))
+                .appendTo(panel);
         });
+    }
+
+    function applyAiDiscoveryResult(data) {
+        if (data && data.rendered) $('#dhc-llms-preview').text(data.rendered.llms || '');
+        if (data && data.validation) renderValidation(data.validation);
+    }
+
+    function updateAiMode() {
+        var mode = $('input[name="dhc-llms-mode"]:checked').val() || 'auto';
+        $('.dhc-custom-content-wrap').toggle(mode !== 'auto');
+        $('#dhc-llms-full-content').prop('hidden', !$('#dhc-llms-full-manual').is(':checked'));
+    }
+    $(document).on('change', 'input[name="dhc-llms-mode"], #dhc-llms-full-manual', updateAiMode);
+    updateAiMode();
+
+    function addLlmsLinkRow(link) {
+        link = link || {};
+        var row = $('<div>', { class: 'dhc-llms-link-row' });
+        function field(label, cls, type, value) {
+            return $('<label>').append($('<span>').text(label)).append($('<input>', { class: 'dhc-input ' + cls, type: type || 'text', value: value || '' }));
+        }
+        row.append(field('Title', 'dhc-link-title', 'text', link.title));
+        row.append(field('URL', 'dhc-link-url', 'url', link.url).addClass('dhc-link-url-wrap'));
+        row.append(field('Description', 'dhc-link-description', 'text', link.description).addClass('dhc-link-description-wrap'));
+        var select = $('<select>', { class: 'dhc-input dhc-link-section' });
+        ['Key Pages', 'Services', 'Locations', 'Blog/Resources', 'Contact'].forEach(function(section) { select.append($('<option>').val(section).text(section)); });
+        select.val(link.section || 'Key Pages');
+        row.append($('<label>').append($('<span>').text('Section')).append(select));
+        row.append(field('Order', 'dhc-link-order', 'number', link.sort_order || 0));
+        row.append($('<label>', { class: 'dhc-link-enabled' }).append($('<input>', { class: 'dhc-link-on', type: 'checkbox', checked: link.enabled !== false })).append($('<span>').text('On')));
+        row.append($('<button>', { class: 'dhc-link-remove', type: 'button', 'aria-label': 'Remove link', text: '×' }));
+        $('#dhc-llms-links').append(row);
+        $('#dhc-llms-links-empty').prop('hidden', true);
+    }
+    $(document).on('click', '#dhc-add-llms-link', function() { addLlmsLinkRow(); });
+    $(document).on('click', '.dhc-link-remove', function() {
+        $(this).closest('.dhc-llms-link-row').remove();
+        $('#dhc-llms-links-empty').prop('hidden', $('.dhc-llms-link-row').length > 0);
+    });
+    if (!$('.dhc-llms-link-row').length) addLlmsLinkRow({ enabled: true });
+
+    // Save AI Discovery business profile and the versioned llms editor.
+    $(document).on('click', '#dhc-save-ai-discovery', function() {
+        var btn = $(this), status = $('#dhc-ai-discovery-status'), original = btn.text();
+        btn.prop('disabled', true).text('Saving & regenerating…');
+        status.text('').removeClass('success error');
+        $.post(dhcAdmin.ajaxUrl, aiProfilePayload('dhc_save_ai_discovery'), function(response) {
+            btn.prop('disabled', false).text(original);
+            if (response.success) {
+                applyAiDiscoveryResult(response.data);
+                status.text(response.data.message || 'Saved and regenerated.').addClass('success').removeClass('error');
+            } else status.text((response.data && response.data.message) || response.data || 'Save failed.').addClass('error').removeClass('success');
+        }).fail(function() { btn.prop('disabled', false).text(original); status.text('Network error.').addClass('error').removeClass('success'); });
+    });
+
+    $(document).on('click', '#dhc-preview-ai-discovery', function() {
+        var btn = $(this), status = $('#dhc-ai-discovery-status'), original = btn.text();
+        btn.prop('disabled', true).text('Checking links…');
+        $.post(dhcAdmin.ajaxUrl, aiProfilePayload('dhc_preview_ai_discovery'), function(response) {
+            btn.prop('disabled', false).text(original);
+            if (response.success) { applyAiDiscoveryResult(response.data); status.text('Preview updated. Nothing was saved.').addClass('success').removeClass('error'); }
+            else status.text((response.data && response.data.message) || response.data || 'Preview failed.').addClass('error').removeClass('success');
+        }).fail(function() { btn.prop('disabled', false).text(original); status.text('Network error.').addClass('error').removeClass('success'); });
+    });
+
+    $(document).on('click', '#dhc-reset-ai-discovery', function() {
+        if (!window.confirm('Reset llms.txt to automatic generation? Your curated links and custom text will be cleared.')) return;
+        $.post(dhcAdmin.ajaxUrl, { action: 'dhc_reset_ai_discovery', nonce: dhcAdmin.nonce }, function(response) {
+            if (!response.success) return $('#dhc-ai-discovery-status').text(response.data || 'Reset failed.').addClass('error');
+            $('input[name="dhc-llms-mode"][value="auto"]').prop('checked', true);
+            $('#dhc-llms-links').empty(); addLlmsLinkRow({ enabled: true });
+            $('#dhc-llms-custom-content, #dhc-llms-full-content').val(''); $('#dhc-llms-full-manual').prop('checked', false);
+            updateAiMode(); applyAiDiscoveryResult(response.data);
+            $('#dhc-ai-discovery-status').text(response.data.message || 'Reset to auto.').addClass('success').removeClass('error');
+        });
+    });
+
+    $(document).on('click', '#dhc-submit-indexnow-all', function() {
+        var btn = $(this), status = $('#dhc-indexnow-status'), original = btn.text();
+        btn.prop('disabled', true).text('Queueing URLs…');
+        $.post(dhcAdmin.ajaxUrl, { action: 'dhc_submit_indexnow_all', nonce: dhcAdmin.nonce }, function(response) {
+            btn.prop('disabled', false).text(original);
+            status.text(response.success ? response.data.message : (response.data || 'Submission failed.')).toggleClass('success', !!response.success).toggleClass('error', !response.success);
+        }).fail(function() { btn.prop('disabled', false).text(original); status.text('Network error.').addClass('error'); });
     });
 
     // Refresh Connection (re-validate API key) — uses Dashicons spinner instead of SVG
@@ -131,15 +218,12 @@
         var originalHtml = btn.html();
         btn.prop('disabled', true).html('<span class="dashicons dashicons-update dhc-spin" style="font-size:14px;width:14px;height:14px;line-height:14px;"></span> Refreshing...');
 
-        var apiKey = $('#dhc-api-key').val() || '';
-        if (!apiKey) {
-            apiKey = $('input[type="password"]').first().val() || '';
-        }
+        var apiKey = ($('#dhc-api-key').val() || '').trim();
 
         $.post(dhcAdmin.ajaxUrl, {
             action: 'dhc_validate_key',
             nonce: dhcAdmin.nonce,
-            api_key: apiKey.trim()
+            api_key: apiKey
         }, function(response) {
             btn.prop('disabled', false).html(originalHtml);
             if (response.success) {
@@ -199,15 +283,15 @@
                     el.val(value);
                     filled.push(label);
                 }
-                setIfEmpty('#dhc-biz-name', p.business_name, 'name');
-                setIfEmpty('#dhc-biz-desc', p.description, 'description');
-                setIfEmpty('#dhc-biz-services', p.services_text, 'services');
-                setIfEmpty('#dhc-biz-phone', p.phone, 'phone');
-                setIfEmpty('#dhc-biz-email', p.email, 'email');
+                setIfEmpty('#dhc-biz-name,[data-profile-key="business_name"]', p.business_name, 'name');
+                setIfEmpty('#dhc-biz-desc,[data-profile-key="description"]', p.description, 'description');
+                setIfEmpty('#dhc-biz-services,[data-profile-key="services"]', p.services_text, 'services');
+                setIfEmpty('#dhc-biz-phone,[data-profile-key="phone"]', p.phone, 'phone');
+                setIfEmpty('#dhc-biz-email,[data-profile-key="email"]', p.email, 'email');
                 setIfEmpty('#dhc-biz-address', p.address, 'address');
-                setIfEmpty('#dhc-biz-areas', p.service_areas_text, 'service areas');
-                setIfEmpty('#dhc-biz-hours', p.hours, 'hours');
-                setIfEmpty('#dhc-biz-extra', p.extra_info, 'additional info');
+                setIfEmpty('#dhc-biz-areas,[data-profile-key="service_areas"]', p.service_areas_text, 'service areas');
+                setIfEmpty('#dhc-biz-hours,[data-profile-key="hours"]', p.hours, 'hours');
+                setIfEmpty('#dhc-biz-extra,[data-profile-key="notes"]', p.extra_info, 'additional info');
                 var msg = filled.length
                     ? 'Pulled ' + filled.length + ' field' + (filled.length === 1 ? '' : 's') + ' from your homepage: ' + filled.join(', ') + '. Review and save when ready.'
                     : 'Scrape finished but we didn\'t find new data (fields already filled, or page is thin on structured info).';
@@ -235,40 +319,21 @@
         $.post(dhcAdmin.ajaxUrl, {
             action: 'dhc_sync_from_hub',
             nonce: dhcAdmin.nonce,
-            force: 0
+            force: 1
         }, function(response) {
             btn.prop('disabled', false).html(originalHtml);
             if (response.success) {
                 status.text(response.data.message || 'Profile synced!').addClass('success').removeClass('error');
-
-                // Auto-fill the form fields with the synced data
-                var p = response.data.profile || {};
-                if (p.business_name) $('#dhc-biz-name').val(p.business_name);
-                if (p.description) $('#dhc-biz-desc').val(p.description);
-                if (p.phone) $('#dhc-biz-phone').val(p.phone);
-                if (p.email) $('#dhc-biz-email').val(p.email);
-                if (p.address) $('#dhc-biz-address').val(p.address);
-                if (p.hours) $('#dhc-biz-hours').val(p.hours);
-                if (p.extra_info) $('#dhc-biz-extra').val(p.extra_info);
-
-                // Handle services (could be array of strings or objects)
-                if (p.services_text) {
-                    $('#dhc-biz-services').val(p.services_text);
-                } else if (p.services && Array.isArray(p.services)) {
-                    var serviceNames = p.services.map(function(s) {
-                        return typeof s === 'string' ? s : (s.name || '');
-                    });
-                    $('#dhc-biz-services').val(serviceNames.join('\n'));
-                }
-
-                // Handle service areas
-                if (p.service_areas_text) {
-                    $('#dhc-biz-areas').val(p.service_areas_text);
-                } else if (p.service_areas && Array.isArray(p.service_areas)) {
-                    $('#dhc-biz-areas').val(p.service_areas.join('\n'));
-                }
-
-                setTimeout(function() { status.text(''); }, 6000);
+                // The backend has already saved every canonical field and
+                // regenerated discovery files. Reload so stale form controls
+                // cannot overwrite the authoritative Hub snapshot later.
+                setTimeout(function() {
+                    if (typeof window.dhcReloadAfterHubSync === 'function') {
+                        window.dhcReloadAfterHubSync();
+                    } else {
+                        window.location.reload();
+                    }
+                }, 350);
             } else {
                 var errMsg = response.data || 'Sync failed.';
                 if (errMsg.indexOf('compile') > -1 || errMsg.indexOf('500') > -1) {
@@ -276,9 +341,16 @@
                 }
                 status.text(errMsg).addClass('error').removeClass('success');
             }
-        }).fail(function() {
+        }).fail(function(xhr) {
             btn.prop('disabled', false).html(originalHtml);
-            status.text('Could not connect to the Hub. Check your internet connection and try again.').addClass('error').removeClass('success');
+            var data = xhr && xhr.responseJSON ? xhr.responseJSON.data : null;
+            var serverMessage = '';
+            if (data && typeof data === 'object' && typeof data.message === 'string') {
+                serverMessage = data.message;
+            } else if (typeof data === 'string') {
+                serverMessage = data;
+            }
+            status.text(serverMessage || 'Could not connect to the Hub. Check your internet connection and try again.').addClass('error').removeClass('success');
         });
     });
 
