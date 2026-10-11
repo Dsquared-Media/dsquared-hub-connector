@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.21.2
+
+- Advertise the connector's exact supported REST routes in status and heartbeat payloads.
+- Let the Hub verify secure same-site page fetching instead of treating a healthy connector as capability-unknown.
+
 ## 1.21.1
 
 - Bind browser-visible narrow telemetry to the current private-key fingerprint and site; reject stale, malformed, or private-as-public values.

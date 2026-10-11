@@ -14,6 +14,58 @@ class DHC_REST {
     const NAMESPACE = 'dsquared-hub/v1';
 
     /**
+     * Return the routes this exact installed connector can serve.
+     *
+     * The Hub stores this list with each heartbeat so it can distinguish a
+     * healthy connection from a connector that is missing a required
+     * capability. Keep the inventory tied to real registered routes. Optional
+     * module routes are advertised only when that module is available.
+     *
+     * @return array<int,string>
+     */
+    public static function advertised_routes() {
+        $prefix = '/wp-json/' . self::NAMESPACE;
+        $routes = array(
+            '/status',
+            '/fetch-page',
+            '/crawler/wake',
+            '/post',
+            '/schema',
+            '/seo-meta',
+            '/health',
+            '/ai-discovery',
+            '/content-decay',
+            '/leads',
+            '/media/alt',
+            '/posts/content',
+            '/posts/heading',
+            '/seo-meta/bulk',
+            '/link-scan',
+        );
+
+        if ( DHC_API_Key::is_module_available( 'ai_discovery' ) ) {
+            $routes = array_merge( $routes, array(
+                '/ai-discovery/profile',
+                '/ai-discovery/ping',
+                '/ai-discovery/raw',
+            ) );
+        }
+        if ( DHC_API_Key::is_module_available( 'content_decay' ) ) {
+            $routes[] = '/content-decay/scan';
+        }
+        if ( DHC_API_Key::is_module_available( 'form_capture' ) ) {
+            $routes[] = '/leads/stats';
+        }
+
+        return array_values( array_unique( array_map(
+            function( $route ) use ( $prefix ) {
+                return $prefix . $route;
+            },
+            $routes
+        ) ) );
+    }
+
+    /**
      * Register all REST routes
      */
     public static function register_routes() {
@@ -338,6 +390,7 @@ class DHC_REST {
             'site_url'     => get_site_url(),
             'site_name'    => get_bloginfo( 'name' ),
             'connected'    => ! empty( get_option( 'dhc_api_key', '' ) ),
+            'advertised_routes' => self::advertised_routes(),
             'subscription' => array(
                 'active'  => $subscription['valid'] ?? false,
                 'tier'    => $subscription['tier'] ?? '',

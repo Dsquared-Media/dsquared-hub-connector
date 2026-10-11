@@ -132,6 +132,7 @@ class DHC_Heartbeat {
             'wp_version'      => get_bloginfo( 'version' ),
             'php_version'     => phpversion(),
             'active_modules'  => $active_modules,
+            'advertised_routes' => DHC_REST::advertised_routes(),
         );
 
         $hub_url = self::get_hub_url();
