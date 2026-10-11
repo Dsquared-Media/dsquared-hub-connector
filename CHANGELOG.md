@@ -4,6 +4,8 @@
 
 - Advertise the connector's exact supported REST routes in status and heartbeat payloads.
 - Let the Hub verify secure same-site page fetching instead of treating a healthy connector as capability-unknown.
+- Validate the exact site origin at every loopback-fetch redirect hop and cap the response during transfer.
+- Remove obsolete route aliases and advertise every entitled AI Discovery, content-decay, and lead-stats route accurately.
 
 ## 1.21.1
 
