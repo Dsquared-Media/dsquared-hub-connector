@@ -1,0 +1,42 @@
+name: Connector security contract
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  containment:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['7.4', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '${{ matrix.php }}'
+          coverage: none
+      - run: php tests/connector-containment.php
+      - run: php tests/connector-uninstall.php
+      - run: find . -name '*.php' -not -path './.git/*' -print0 | xargs -0 -n1 php -l
+      - run: node --test tests/*.test.js
+  package-review-artifact:
+    needs: containment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Build review ZIP only (never a GitHub release)
+        run: |
+          git archive --format=zip --prefix=dsquared-hub-connector/ --output=dsquared-hub-connector.zip HEAD dsquared-hub-connector.php uninstall.php readme.txt README.md CHANGELOG.md LICENSE includes admin assets
+          sha256sum dsquared-hub-connector.zip > dsquared-hub-connector.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connector-review-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            dsquared-hub-connector.zip
+            dsquared-hub-connector.zip.sha256

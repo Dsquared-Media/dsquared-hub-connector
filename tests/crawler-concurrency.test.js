@@ -113,6 +113,7 @@ test('Requests multi results remain ordered and reject off-site and credential r
     require ${JSON.stringify(crawlerPath)};
     $crawler = DHC_Crawler::init();
     $method = new ReflectionMethod(DHC_Crawler::class, 'safe_fetch_batch');
+    if (PHP_VERSION_ID < 80100) $method->setAccessible(true);
     $urls = array(
       'https://example.test/slow-a',
       'https://example.test/redirect',
@@ -165,17 +166,24 @@ test('serial fallback and legacy single fetch cap transfer bodies before parsing
     require ${JSON.stringify(crawlerPath)};
     $crawler = DHC_Crawler::init();
     $multi = new ReflectionMethod(DHC_Crawler::class, 'request_multiple');
+    if (PHP_VERSION_ID < 80100) $multi->setAccessible(true);
     $multi->invoke($crawler, array(
       0 => 'https://example.test/a',
       1 => 'https://example.test/b'
     ), 2, microtime(true) + 5);
     $single = new ReflectionMethod(DHC_Crawler::class, 'safe_fetch');
+    if (PHP_VERSION_ID < 80100) $single->setAccessible(true);
     $single->invoke($crawler, 'https://example.test/legacy', 'example.test');
     echo json_encode(array(
       'gets' => $GLOBALS['gets'],
     ));
   `;
-  const result = JSON.parse(execFileSync('php', ['-n', '-r', php], { encoding: 'utf8' }));
+  // Keep optional transports disabled, but retain JSON for fixture output on
+  // PHP 7.4 distributions where it is a shared extension rather than built in.
+  const isolatedArgs = ['-n'];
+  const hasJson = execFileSync('php', ['-n', '-r', 'echo function_exists("json_encode") ? "1" : "0";'], { encoding: 'utf8' });
+  if (hasJson === '0') isolatedArgs.push('-d', 'extension=json');
+  const result = JSON.parse(execFileSync('php', [...isolatedArgs, '-r', php], { encoding: 'utf8' }));
   assert.equal(result.gets.length, 3);
   for (const call of result.gets) {
     assert.equal(call.args.limit_response_size, 409601);
@@ -209,6 +217,7 @@ test('redirect rounds stop at the wall-clock deadline and return a partial resul
     require ${JSON.stringify(crawlerPath)};
     $crawler = DHC_Crawler::init();
     $method = new ReflectionMethod(DHC_Crawler::class, 'safe_fetch_batch');
+    if (PHP_VERSION_ID < 80100) $method->setAccessible(true);
     $started = microtime(true);
     $results = $method->invoke(
       $crawler,

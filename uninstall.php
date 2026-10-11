@@ -18,6 +18,7 @@ $options = array(
     // Core
     'dhc_api_key',
     'dhc_telemetry_token',
+    'dhc_telemetry_binding',
     'dhc_telemetry_provision_retry',
     'dhc_modules',
     'dhc_subscription',
@@ -53,6 +54,7 @@ foreach ( $options as $option ) {
 
 // ── Remove transients ───────────────────────────────────────
 delete_transient( 'dhc_subscription_cache' );
+delete_transient( 'dhc_subscription_cache_site_bound_v1' );
 delete_transient( 'dhc_update_cache' );
 
 // ── Remove per-post meta ────────────────────────────────────

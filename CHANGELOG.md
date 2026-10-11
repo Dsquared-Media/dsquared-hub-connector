@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.23.1
+
+- Bind every browser-visible telemetry token to the current connector key and site, and reject stale or malformed derived tokens.
+- Revalidate privileged Hub requests against the authoritative subscription service instead of trusting the display cache.
+- Clear derived telemetry state when the connector key changes or the plugin is deactivated, while retaining the private key for intentional reactivation.
+- Repair the Content Decay and Leads REST routes by routing them through their initialized module instances.
+- Preserve all 1.23.0 admin, form inbox, tracking script, schema, activity log, AI Discovery, and IndexNow capabilities.
+
 ## 1.23.0
 
 - Rebuild the WordPress admin experience as 13 dedicated, ordered screens using the supplied Inter-based responsive design system.

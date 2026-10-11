@@ -3,7 +3,7 @@
  * Plugin Name:       Dsquared Hub Connector
  * Plugin URI:        https://hub.dsquaredmedia.net
  * Description:       Connect your WordPress site to Dsquared Media Hub — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, AI discovery, content decay alerts, and lead capture. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
- * Version:           1.23.0
+ * Version:           1.23.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Dsquared Media
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Plugin constants ────────────────────────────────────────────────
-define( 'DHC_VERSION', '1.23.0' );
+define( 'DHC_VERSION', '1.23.1' );
 define( 'DHC_PLUGIN_FILE', __FILE__ );
 define( 'DHC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -183,9 +183,15 @@ add_action( 'dhc_auto_populate_profile', function() {
 // cron retry when dhc_telemetry_token is missing). The private dhc_api_key
 // must never appear in public page HTML.
 add_action( DHC_Heartbeat::TELEMETRY_PROVISION_HOOK, array( 'DHC_Heartbeat', 'maybe_provision_telemetry_token' ) );
+// These hooks also cover direct option writes (WP-CLI, imports, integrations).
+add_action( 'add_option_dhc_api_key', array( 'DHC_Heartbeat', 'connector_key_changed' ) );
+add_action( 'update_option_dhc_api_key', array( 'DHC_Heartbeat', 'connector_key_changed' ) );
+add_action( 'delete_option_dhc_api_key', array( 'DHC_Heartbeat', 'connector_key_changed' ) );
 
 // ── Deactivation hook ───────────────────────────────────────────────
 function dhc_deactivate() {
+    DHC_API_Key::clear_cache();
+    DHC_Heartbeat::clear_telemetry_state();
     // Clean up transients
     delete_transient( 'dhc_subscription_cache' );
     delete_transient( 'dhc_update_cache' );

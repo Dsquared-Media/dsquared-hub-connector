@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.23.0
+Stable tag: 1.23.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -16,7 +16,7 @@ The **Dsquared Hub Connector** bridges your WordPress website directly to your D
 
 All features are subscription-gated via an API key. If your subscription lapses, the plugin gracefully disables its features without affecting your website's functionality or breaking any existing content.
 
-### Core Modules (v1.23.0)
+### Core Modules (v1.23.1)
 
 *   **Auto-Post to Draft:** Receive blog content from the Hub's Blog Writer and create WordPress draft posts automatically. Supports title, body, categories, tags, and featured images. (Starter+ Tier)
 *   **Schema Injector:** Push JSON-LD structured data from the Hub's Schema Generator directly into your pages. Supports per-post and site-wide schemas. (Growth+ Tier)
@@ -65,6 +65,12 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.23.1 =
+* Bind browser telemetry to the current connector key and site, and invalidate stale derived tokens.
+* Revalidate privileged Hub requests against the authoritative subscription service.
+* Clear derived telemetry state when the connector key changes or the plugin is deactivated.
+* Repair Content Decay and Leads route ownership while preserving all 1.23.0 features.
 
 = 1.22.0 =
 * Restrict llms.txt and llms-full.txt auto-discovery to canonical published pages and posts.
