@@ -52,6 +52,23 @@ class DHC_API_Key {
             if ( false !== $cached && is_array( $cached )
                 && ( $cached['site_url'] ?? '' ) === home_url( '/' )
                 && ( $cached['key_hash'] ?? '' ) === hash( 'sha256', $api_key ) ) {
+                // A cached entitlement must never outlive its own known expiry.
+                // The transient TTL is only a network-cache duration; it is not
+                // permission to keep collecting or exposing subscription data.
+                if ( ! empty( $cached['expires'] ) ) {
+                    $expiry = strtotime( $cached['expires'] );
+                    if ( $expiry && $expiry <= time() ) {
+                        $cached['valid']   = false;
+                        $cached['expired'] = true;
+                        $cached['message'] = esc_html__( 'Your Dsquared Hub subscription has expired. Features are currently disabled but your website is unaffected. Renew your subscription to restore full functionality.', 'dsquared-hub-connector' );
+                        set_transient( self::CACHE_KEY, $cached, self::CACHE_DURATION );
+                        update_option( 'dhc_subscription', array(
+                            'status'  => 'inactive',
+                            'tier'    => $cached['tier'] ?? 'starter',
+                            'expires' => $cached['expires'],
+                        ) );
+                    }
+                }
                 return $cached;
             }
         }
