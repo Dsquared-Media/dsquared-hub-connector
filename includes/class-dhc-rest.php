@@ -14,6 +14,72 @@ class DHC_REST {
     const NAMESPACE = 'dsquared-hub/v1';
 
     /**
+     * Return the routes this exact installed connector can serve.
+     *
+     * The Hub stores this list with each heartbeat so it can distinguish a
+     * healthy connection from a connector that is missing a required
+     * capability. Keep the inventory tied to real registered routes. Optional
+     * module routes are advertised only when that module is available.
+     *
+     * @return array<int,string>
+     */
+    public static function advertised_routes() {
+        $prefix = '/wp-json/' . self::NAMESPACE;
+        $routes = array(
+            '/status',
+            '/fetch-page',
+            '/crawler/wake',
+            '/health',
+        );
+
+        if ( DHC_API_Key::is_module_available( 'auto_post' ) ) {
+            $routes[] = '/post';
+        }
+        if ( DHC_API_Key::is_module_available( 'schema' ) ) {
+            $routes[] = '/schema';
+        }
+        if ( DHC_API_Key::is_module_available( 'seo_meta' ) ) {
+            $routes = array_merge( $routes, array(
+                '/seo-meta',
+                '/media/alt',
+                '/posts/content',
+                '/posts/heading',
+                '/seo-meta/bulk',
+            ) );
+        }
+        if ( DHC_API_Key::is_module_available( 'site_health' ) ) {
+            $routes[] = '/link-scan';
+        }
+        if ( DHC_API_Key::is_module_available( 'ai_discovery' ) ) {
+            $routes = array_merge( $routes, array(
+                '/ai-discovery',
+                '/ai-discovery/profile',
+                '/ai-discovery/ping',
+                '/ai-discovery/raw',
+                '/ai-discovery/llms',
+                '/ai-discovery/llms/regenerate',
+                '/ai-discovery/indexnow/submit',
+            ) );
+        }
+        if ( DHC_API_Key::is_module_available( 'content_decay' ) ) {
+            $routes = array_merge( $routes, array(
+                '/content-decay',
+                '/content-decay/scan',
+            ) );
+        }
+        if ( DHC_API_Key::is_module_available( 'form_capture' ) ) {
+            $routes[] = '/leads/stats';
+        }
+
+        return array_values( array_unique( array_map(
+            function( $route ) use ( $prefix ) {
+                return $prefix . $route;
+            },
+            $routes
+        ) ) );
+    }
+
+    /**
      * Register all REST routes
      */
     public static function register_routes() {
@@ -111,7 +177,7 @@ class DHC_REST {
         register_rest_route( self::NAMESPACE, '/ai-discovery', array(
             'methods'             => 'POST',
             'callback'            => array( 'DHC_AI_Discovery', 'handle_request' ),
-            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
+            'permission_callback' => array( __CLASS__, 'authorize_ai_discovery' ),
             'args'                => array(
                 'business_name' => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
                 'description'   => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_textarea_field' ),
@@ -122,20 +188,6 @@ class DHC_REST {
                 'address'       => array( 'required' => false, 'type' => 'object' ),
                 'hours'         => array( 'required' => false, 'type' => 'object' ),
             ),
-        ) );
-
-        // ── Content Decay — trigger scan ────────────────────────
-        register_rest_route( self::NAMESPACE, '/content-decay', array(
-            'methods'             => 'GET',
-            'callback'            => array( 'DHC_Content_Decay', 'handle_request' ),
-            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
-        ) );
-
-        // ── Form Capture — lead stats ───────────────────────────
-        register_rest_route( self::NAMESPACE, '/leads', array(
-            'methods'             => 'GET',
-            'callback'            => array( 'DHC_Form_Capture', 'handle_stats_request' ),
-            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
         ) );
 
         // ── Media / Alt Text Updates (v1.9) ─────────────────────
@@ -240,6 +292,22 @@ class DHC_REST {
      * @param WP_REST_Request $request
      * @return WP_REST_Response
      */
+    /** Require both connector authentication and AI Discovery entitlement. */
+    public static function authorize_ai_discovery( $request ) {
+        $authenticated = DHC_API_Key::authenticate_request( $request );
+        if ( true !== $authenticated ) {
+            return $authenticated;
+        }
+        if ( ! DHC_API_Key::is_module_available( 'ai_discovery' ) ) {
+            return new WP_Error(
+                'dhc_ai_discovery_unavailable',
+                'AI Discovery is not available on the current subscription.',
+                array( 'status' => 403 )
+            );
+        }
+        return true;
+    }
+
     /**
      * Fetch a page from this WordPress site and return its rendered HTML.
      *
@@ -250,9 +318,8 @@ class DHC_REST {
      *
      * SECURITY:
      *  - Requires a valid X-DHC-API-Key.
-     *  - URL host MUST match the WordPress home_url() host. We reject any
-     *    URL pointing elsewhere so this endpoint can't be weaponized as
-     *    an open proxy to scrape arbitrary third-party sites.
+     *  - The initial URL and every redirect MUST match the exact WordPress
+     *    home_url() origin (scheme, host, and effective port).
      *  - Response is capped at 2 MB — plenty for a WP post, stops a
      *    misbehaving file from being relayed.
      */
@@ -262,14 +329,12 @@ class DHC_REST {
             return new WP_Error( 'missing_url', 'url parameter required', array( 'status' => 400 ) );
         }
 
-        // Open-proxy guard: only allow URLs pointing at this WP install.
-        $req_host  = strtolower( (string) parse_url( $url, PHP_URL_HOST ) );
-        $site_host = strtolower( (string) parse_url( home_url( '/' ), PHP_URL_HOST ) );
-        if ( empty( $req_host ) ) {
-            return new WP_Error( 'bad_url', 'Invalid URL', array( 'status' => 400 ) );
-        }
-        $norm = function( $h ) { return preg_replace( '/^www\./', '', $h ); };
-        if ( $norm( $req_host ) !== $norm( $site_host ) ) {
+        $site_url  = home_url( '/' );
+        $site_host = strtolower( (string) parse_url( $site_url, PHP_URL_HOST ) );
+        if ( ! self::is_same_origin( $url, $site_url ) ) {
+            if ( empty( parse_url( $url, PHP_URL_HOST ) ) ) {
+                return new WP_Error( 'bad_url', 'Invalid URL', array( 'status' => 400 ) );
+            }
             return new WP_Error(
                 'external_url',
                 'fetch-page only allows URLs on this site (' . $site_host . ')',
@@ -277,23 +342,50 @@ class DHC_REST {
             );
         }
 
-        // Use wp_remote_get because it resolves to the loopback address
-        // when WP_HOME matches — bypasses any edge CDN in front.
-        $resp = wp_remote_get( $url, array(
-            'timeout'     => 20,
-            'redirection' => 5,
-            'sslverify'   => apply_filters( 'dhc_fetch_page_sslverify', true ),
-            'headers'     => array(
-                'User-Agent' => 'DsquaredHubConnector/' . DHC_VERSION . ' (loopback-fetch)',
-                'Accept'     => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            ),
-        ) );
+        $current_url = $url;
+        $redirects   = 0;
+        while ( true ) {
+            // Redirects are handled here so every hop is checked before fetch.
+            $resp = wp_remote_get( $current_url, array(
+                'timeout'     => 20,
+                'redirection' => 0,
+                'sslverify'   => apply_filters( 'dhc_fetch_page_sslverify', true ),
+                'limit_response_size' => 2 * 1024 * 1024 + 1,
+                'headers'     => array(
+                    'User-Agent' => 'DsquaredHubConnector/' . DHC_VERSION . ' (loopback-fetch)',
+                    'Accept'     => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                ),
+            ) );
 
-        if ( is_wp_error( $resp ) ) {
-            return new WP_Error( 'fetch_failed', $resp->get_error_message(), array( 'status' => 502 ) );
+            if ( is_wp_error( $resp ) ) {
+                return new WP_Error( 'fetch_failed', $resp->get_error_message(), array( 'status' => 502 ) );
+            }
+
+            $code = (int) wp_remote_retrieve_response_code( $resp );
+            if ( $code < 300 || $code >= 400 ) {
+                break;
+            }
+
+            $location = trim( (string) wp_remote_retrieve_header( $resp, 'location' ) );
+            if ( '' === $location ) {
+                return new WP_Error( 'redirect_missing_location', 'Upstream redirect did not include a Location header', array( 'status' => 502 ) );
+            }
+            if ( $redirects >= 5 ) {
+                return new WP_Error( 'too_many_redirects', 'Upstream returned too many redirects', array( 'status' => 502 ) );
+            }
+
+            $next_url = self::resolve_redirect_url( $current_url, $location );
+            if ( ! $next_url ) {
+                return new WP_Error( 'bad_redirect', 'Upstream returned an invalid redirect URL', array( 'status' => 502 ) );
+            }
+            if ( ! self::is_same_origin( $next_url, $site_url ) ) {
+                return new WP_Error( 'external_redirect', 'Upstream redirect left this site', array( 'status' => 403 ) );
+            }
+
+            $current_url = $next_url;
+            $redirects++;
         }
 
-        $code = (int) wp_remote_retrieve_response_code( $resp );
         $body = (string) wp_remote_retrieve_body( $resp );
 
         if ( $code >= 400 ) {
@@ -307,10 +399,95 @@ class DHC_REST {
 
         return new WP_REST_Response( array(
             'url'         => $url,
+            'final_url'   => $current_url,
             'status_code' => $code,
             'html'        => $body,
             'fetched_at'  => current_time( 'mysql' ),
         ), 200 );
+    }
+
+    /** Whether two absolute HTTP(S) URLs share an exact origin. */
+    private static function is_same_origin( $url, $site_url ) {
+        $candidate = parse_url( $url );
+        $site      = parse_url( $site_url );
+        if ( ! is_array( $candidate ) || ! is_array( $site ) ||
+            isset( $candidate['user'] ) || isset( $candidate['pass'] ) ) {
+            return false;
+        }
+
+        $candidate_scheme = strtolower( (string) ( $candidate['scheme'] ?? '' ) );
+        $site_scheme      = strtolower( (string) ( $site['scheme'] ?? '' ) );
+        $candidate_host   = strtolower( (string) ( $candidate['host'] ?? '' ) );
+        $site_host        = strtolower( (string) ( $site['host'] ?? '' ) );
+        if ( ! in_array( $candidate_scheme, array( 'http', 'https' ), true ) ||
+            ! in_array( $site_scheme, array( 'http', 'https' ), true ) ||
+            '' === $candidate_host || '' === $site_host ) {
+            return false;
+        }
+
+        $candidate_port = isset( $candidate['port'] ) ? (int) $candidate['port'] : ( 'https' === $candidate_scheme ? 443 : 80 );
+        $site_port      = isset( $site['port'] ) ? (int) $site['port'] : ( 'https' === $site_scheme ? 443 : 80 );
+
+        return $candidate_scheme === $site_scheme &&
+            $candidate_host === $site_host &&
+            $candidate_port === $site_port;
+    }
+
+    /** Resolve an HTTP redirect Location header against the current URL. */
+    private static function resolve_redirect_url( $base_url, $location ) {
+        $location = trim( $location );
+        if ( '' === $location ) {
+            return null;
+        }
+        if ( preg_match( '#^https?://#i', $location ) ) {
+            return $location;
+        }
+
+        $base = parse_url( $base_url );
+        if ( ! is_array( $base ) || empty( $base['scheme'] ) || empty( $base['host'] ) ) {
+            return null;
+        }
+        if ( 0 === strpos( $location, '//' ) ) {
+            return $base['scheme'] . ':' . $location;
+        }
+        if ( preg_match( '#^[a-z][a-z0-9+.-]*:#i', $location ) ) {
+            return null;
+        }
+
+        $origin = $base['scheme'] . '://' . $base['host'] . ( isset( $base['port'] ) ? ':' . $base['port'] : '' );
+        if ( '?' === substr( $location, 0, 1 ) ) {
+            return $origin . ( $base['path'] ?? '/' ) . $location;
+        }
+        if ( '#' === substr( $location, 0, 1 ) ) {
+            return $origin . ( $base['path'] ?? '/' ) . ( isset( $base['query'] ) ? '?' . $base['query'] : '' );
+        }
+
+        $location_parts = explode( '?', $location, 2 );
+        $path = $location_parts[0];
+        if ( '/' !== substr( $path, 0, 1 ) ) {
+            $base_path = $base['path'] ?? '/';
+            $path = rtrim( str_replace( '\\', '/', dirname( $base_path ) ), '/' ) . '/' . $path;
+        }
+
+        $segments = array();
+        foreach ( explode( '/', $path ) as $segment ) {
+            if ( '' === $segment || '.' === $segment ) {
+                continue;
+            }
+            if ( '..' === $segment ) {
+                array_pop( $segments );
+                continue;
+            }
+            $segments[] = $segment;
+        }
+        $resolved = $origin . '/' . implode( '/', $segments );
+        if ( '/' === substr( $path, -1 ) && '/' !== substr( $resolved, -1 ) ) {
+            $resolved .= '/';
+        }
+        if ( isset( $location_parts[1] ) ) {
+            $resolved .= '?' . $location_parts[1];
+        }
+        return $resolved;
     }
 
     public static function handle_status( $request ) {
@@ -338,6 +515,7 @@ class DHC_REST {
             'site_url'     => get_site_url(),
             'site_name'    => get_bloginfo( 'name' ),
             'connected'    => ! empty( get_option( 'dhc_api_key', '' ) ),
+            'advertised_routes' => self::advertised_routes(),
             'subscription' => array(
                 'active'  => $subscription['valid'] ?? false,
                 'tier'    => $subscription['tier'] ?? '',

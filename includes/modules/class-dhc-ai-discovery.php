@@ -16,6 +16,14 @@ class DHC_AI_Discovery {
 
     private static $instance = null;
 
+    const SETTINGS_OPTION       = 'dhc_ai_discovery_llms_settings';
+    const SETTINGS_VERSION      = 2;
+    const VALIDATION_OPTION     = 'dhc_ai_discovery_last_validation';
+    const INDEXNOW_QUEUE_OPTION = 'dhc_ai_discovery_indexnow_queue';
+    const INDEXNOW_LAST_OPTION  = 'dhc_ai_discovery_indexnow_last_submit';
+    const INDEXNOW_CRON_HOOK    = 'dhc_ai_discovery_flush_indexnow';
+    const REGENERATE_CRON_HOOK  = 'dhc_ai_discovery_daily_regenerate';
+
     public static function init() {
         if ( null === self::$instance ) {
             self::$instance = new self();
@@ -52,10 +60,13 @@ class DHC_AI_Discovery {
         // Inject schema into wp_head
         add_action( 'wp_head', array( $this, 'inject_ai_schema' ), 1 );
 
-        // Ping IndexNow on content changes
-        add_action( 'publish_post', array( $this, 'ping_indexnow' ), 20, 1 );
-        add_action( 'publish_page', array( $this, 'ping_indexnow' ), 20, 1 );
+        // Rebuild discovery files and queue IndexNow for every public post type.
         add_action( 'save_post', array( $this, 'on_content_update' ), 20, 3 );
+        add_action( 'trashed_post', array( $this, 'on_content_removed' ), 20, 1 );
+        add_action( 'untrashed_post', array( $this, 'on_content_removed' ), 20, 1 );
+        add_action( 'update_option_dhc_redirects', array( $this, 'on_redirects_changed' ), 10, 3 );
+        add_action( self::INDEXNOW_CRON_HOOK, array( $this, 'flush_indexnow_queue' ) );
+        add_action( self::REGENERATE_CRON_HOOK, array( $this, 'regenerate_static_files' ) );
 
         // REST endpoint for saving business profile from Hub
         add_action( 'rest_api_init', array( $this, 'register_routes' ) );
@@ -66,8 +77,13 @@ class DHC_AI_Discovery {
         // Generate IndexNow key file
         add_action( 'template_redirect', array( $this, 'serve_indexnow_key' ), 1 );
 
-        // Add robots.txt entries
-        add_filter( 'robots_txt', array( $this, 'add_robots_entries' ), 10, 2 );
+        // Run after Yoast and other SEO plugins so we can append valid groups
+        // without placing orphan directives above their User-agent block.
+        add_filter( 'robots_txt', array( $this, 'add_robots_entries' ), 999, 2 );
+
+        if ( function_exists( 'wp_next_scheduled' ) && ! wp_next_scheduled( self::REGENERATE_CRON_HOOK ) ) {
+            wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', self::REGENERATE_CRON_HOOK );
+        }
     }
 
     /**
@@ -105,25 +121,20 @@ class DHC_AI_Discovery {
             return new WP_Error( 'empty_profile', 'No business profile to write.' );
         }
 
-        // Keep the discovery files intentionally distinct: llms.txt is the
-        // concise index and links to llms-full.txt, while llms-full.txt contains
-        // the expanded business profile, key pages, and recent articles. Skip
-        // llms.txt only if a Hub-curated version is stored in dhc_llms_txt_raw.
-        $has_raw  = (bool) get_option( 'dhc_llms_txt_raw', '' );
-        $summary  = $this->generate_llms_summary( $profile );
-        $full     = $this->generate_llms_full( $profile );
+        $rendered = $this->render_files( $profile, $this->get_editor_settings() );
         $files = array(
-            ABSPATH . 'llms-full.txt' => $full,
+            ABSPATH . 'llms.txt'      => $rendered['llms'],
+            ABSPATH . 'llms-full.txt' => $rendered['full'],
         );
-        if ( ! $has_raw ) {
-            $files[ ABSPATH . 'llms.txt' ] = $summary;
-        }
 
+        $failed = array();
         foreach ( $files as $path => $content ) {
             $ok = @file_put_contents( $path, $content );
             if ( $ok !== false ) {
                 $written[] = $path;
                 @chmod( $path, 0644 );
+            } else {
+                $failed[] = $path;
             }
         }
 
@@ -132,16 +143,178 @@ class DHC_AI_Discovery {
         // smart quotes and em dashes as mojibake (â€" instead of —).
         $htaccess = ABSPATH . '.htaccess';
         $marker   = '# DHC: force UTF-8 charset on llms txt files';
-        $block    = "\n{$marker}\n<FilesMatch \"^llms.*\\.txt$\">\n    AddCharset UTF-8 .txt\n</FilesMatch>\n# /DHC: force UTF-8 charset\n";
+        $block    = "\n{$marker}\n<FilesMatch \"^llms(?:-full)?\\.txt$\">\n    AddCharset UTF-8 .txt\n    <IfModule mod_headers.c>\n        Header set Content-Type \"text/plain; charset=utf-8\"\n    </IfModule>\n</FilesMatch>\n# /DHC: force UTF-8 charset\n";
         $current  = @file_get_contents( $htaccess );
-        if ( $current !== false && strpos( $current, $marker ) === false ) {
-            @file_put_contents( $htaccess, $current . $block );
+        if ( $current !== false ) {
+            $pattern = '/\\n?# DHC: force UTF-8 charset on llms txt files.*?# \/DHC: force UTF-8 charset\\n?/s';
+            $next = preg_replace( $pattern, "\n", $current ) . $block;
+            if ( $next !== $current ) @file_put_contents( $htaccess, $next );
         }
 
-        if ( empty( $written ) ) {
-            return new WP_Error( 'write_failed', 'Could not write to ABSPATH. Check WP-root write permissions.' );
+        if ( ! empty( $failed ) ) {
+            return new WP_Error(
+                'write_failed',
+                'Could not write every AI Discovery file. Check WP-root write permissions.',
+                array( 'written' => $written, 'failed' => $failed )
+            );
         }
         return $written;
+    }
+
+    /** Return one versioned editor option and retain legacy raw content safely. */
+    public function get_editor_settings() {
+        $stored = get_option( self::SETTINGS_OPTION, array() );
+        $legacy = get_option( 'dhc_llms_txt_raw', '' );
+        $defaults = array(
+            'version'             => self::SETTINGS_VERSION,
+            'mode'                => 'auto',
+            'links'               => array(),
+            'custom_content'      => is_string( $legacy ) ? $legacy : '',
+            'full_manual'         => false,
+            'full_custom_content' => '',
+            'updated_at'          => '',
+        );
+        if ( ! is_array( $stored ) ) $stored = array();
+        return array_merge( $defaults, $stored );
+    }
+
+    public function migrate_editor_settings() {
+        return self::migrate_editor_settings_option();
+    }
+
+    /** Migrate stored editor data without initializing any gated runtime hooks. */
+    public static function migrate_editor_settings_option() {
+        $stored = get_option( self::SETTINGS_OPTION, null );
+        if ( is_array( $stored ) && intval( $stored['version'] ?? 0 ) >= self::SETTINGS_VERSION ) return $stored;
+        $legacy = get_option( 'dhc_llms_txt_raw', '' );
+        $defaults = array(
+            'version' => self::SETTINGS_VERSION, 'mode' => 'auto', 'links' => array(),
+            'custom_content' => is_string( $legacy ) ? $legacy : '',
+            'full_manual' => false, 'full_custom_content' => '', 'updated_at' => '',
+        );
+        $settings = array_merge( $defaults, is_array( $stored ) ? $stored : array() );
+        if ( is_string( $legacy ) && trim( $legacy ) !== '' ) {
+            // Preserve the existing curated text while adding the verified
+            // page links introduced by the new editor.
+            $settings['mode'] = 'append';
+        }
+        $settings['version'] = self::SETTINGS_VERSION;
+        $settings['updated_at'] = current_time( 'mysql', true );
+        update_option( self::SETTINGS_OPTION, $settings, false );
+        // get_editor_settings copied the legacy raw text into custom_content.
+        // Append mode rebuilds the public file with verified links while
+        // retaining the prior curated text exactly.
+        delete_option( 'dhc_llms_txt_raw' );
+        return $settings;
+    }
+
+    /** Sanitize editor settings from wp-admin or the authenticated Hub API. */
+    public function sanitize_editor_settings( $input ) {
+        if ( ! is_array( $input ) ) $input = array();
+        $mode = sanitize_key( $input['mode'] ?? 'auto' );
+        if ( ! in_array( $mode, array( 'auto', 'append', 'manual' ), true ) ) $mode = 'auto';
+        $allowed_sections = array( 'Key Pages', 'Services', 'Locations', 'Blog/Resources', 'Contact' );
+        $links = array();
+        foreach ( (array) ( $input['links'] ?? array() ) as $index => $link ) {
+            if ( ! is_array( $link ) ) continue;
+            $url = esc_url_raw( trim( (string) ( $link['url'] ?? '' ) ) );
+            $title = sanitize_text_field( $link['title'] ?? '' );
+            if ( ! $url || ! $title ) continue;
+            $section = sanitize_text_field( $link['section'] ?? 'Key Pages' );
+            if ( ! in_array( $section, $allowed_sections, true ) ) $section = 'Key Pages';
+            $links[] = array(
+                'title'       => $title,
+                'url'         => $url,
+                'description' => sanitize_text_field( $link['description'] ?? '' ),
+                'section'     => $section,
+                'sort_order'  => max( 0, min( 9999, intval( $link['sort_order'] ?? $index ) ) ),
+                'enabled'     => ! empty( $link['enabled'] ),
+            );
+        }
+        usort( $links, function( $a, $b ) {
+            return ( $a['sort_order'] <=> $b['sort_order'] ) ?: strcmp( $a['title'], $b['title'] );
+        } );
+        return array(
+            'version'             => self::SETTINGS_VERSION,
+            'mode'                => $mode,
+            'links'               => array_slice( $links, 0, 100 ),
+            'custom_content'      => $this->sanitize_manual_content( $input['custom_content'] ?? '' ),
+            'full_manual'         => ! empty( $input['full_manual'] ),
+            'full_custom_content' => $this->sanitize_manual_content( $input['full_custom_content'] ?? '' ),
+            'updated_at'          => current_time( 'mysql', true ),
+        );
+    }
+
+    private function sanitize_manual_content( $content ) {
+        // Admin JSON is unslashed before it reaches this method and REST JSON
+        // is already decoded. Unslashing again would corrupt legitimate
+        // backslashes in manually authored Markdown.
+        $content = str_replace( array( "\r\n", "\r", "\0" ), array( "\n", "\n", '' ), (string) $content );
+        return trim( wp_check_invalid_utf8( $content ) );
+    }
+
+    public function save_editor_settings( $input, $source = 'admin' ) {
+        $settings = $this->sanitize_editor_settings( $input );
+        update_option( self::SETTINGS_OPTION, $settings, false );
+        // The versioned editor is authoritative now. The legacy option is
+        // retained inside custom_content but may no longer override output.
+        delete_option( 'dhc_llms_txt_raw' );
+        // First validate every rendered public URL over HTTP. The results are
+        // cached, then regeneration omits any URL that failed the live check.
+        $candidate = $this->render_files( null, $settings );
+        $this->validate_rendered_files( $candidate, true );
+        $result = $this->regenerate_static_files();
+        $rendered = $this->render_files( null, $settings );
+        $validation = $this->validate_rendered_files( $rendered, false );
+        update_option( self::VALIDATION_OPTION, $validation, false );
+        $this->log_activity( 'AI Discovery editor saved and files regenerated (' . sanitize_key( $source ) . ')' );
+        return array( 'settings' => $settings, 'rendered' => $rendered, 'validation' => $validation, 'files' => $result );
+    }
+
+    public function reset_editor_settings( $source = 'admin' ) {
+        $settings = $this->sanitize_editor_settings( array( 'mode' => 'auto', 'links' => array() ) );
+        update_option( self::SETTINGS_OPTION, $settings, false );
+        delete_option( 'dhc_llms_txt_raw' );
+        $candidate = $this->render_files( null, $settings );
+        $this->validate_rendered_files( $candidate, true );
+        $result = $this->regenerate_static_files();
+        $rendered = $this->render_files( null, $settings );
+        $validation = $this->validate_rendered_files( $rendered, false );
+        update_option( self::VALIDATION_OPTION, $validation, false );
+        $this->log_activity( 'AI Discovery editor reset to auto (' . sanitize_key( $source ) . ')' );
+        return array( 'settings' => $settings, 'rendered' => $rendered, 'validation' => $validation, 'files' => $result );
+    }
+
+    public function render_files( $profile = null, $settings = null ) {
+        if ( ! is_array( $profile ) ) {
+            $profile = get_option( 'dhc_business_profile', array() );
+            if ( empty( $profile ) ) $profile = $this->build_fallback_profile();
+        }
+        if ( ! is_array( $settings ) ) $settings = $this->get_editor_settings();
+        $auto = $this->generate_llms_summary( $profile, $settings );
+        $full = $this->generate_llms_full( $profile, $settings );
+        if ( 'manual' === $settings['mode'] ) {
+            $llms = (string) $settings['custom_content'];
+        } elseif ( 'append' === $settings['mode'] && trim( (string) $settings['custom_content'] ) !== '' ) {
+            $llms = rtrim( $auto ) . "\n\n" . trim( $settings['custom_content'] ) . "\n";
+        } else {
+            $llms = $auto;
+        }
+        if ( ! empty( $settings['full_manual'] ) && trim( (string) $settings['full_custom_content'] ) !== '' ) {
+            $full = trim( $settings['full_custom_content'] ) . "\n";
+        }
+        return array( 'llms' => $this->normalize_generated_text( $llms, 'manual' === $settings['mode'] ),
+            'full' => $this->normalize_generated_text( $full, ! empty( $settings['full_manual'] ) ) );
+    }
+
+    private function normalize_generated_text( $text, $manual = false ) {
+        $text = str_replace( array( "\r\n", "\r", "\0" ), array( "\n", "\n", '' ), (string) $text );
+        if ( ! $manual ) {
+            // Static-file accelerators sometimes omit charset. Keep generated
+            // punctuation ASCII-safe while dynamic responses still declare UTF-8.
+            $text = str_replace( array( '—', '–', '“', '”', '‘', '’', "\xC2\xA0" ), array( '-', '-', '"', '"', "'", "'", ' ' ), $text );
+        }
+        return rtrim( wp_check_invalid_utf8( $text ) ) . "\n";
     }
 
     public function maybe_serve_llms_txt_early( $wp ) {
@@ -153,19 +326,6 @@ class DHC_AI_Discovery {
         if ( $uri !== 'llms.txt' && $uri !== 'llms-full.txt' ) return;
 
         $is_full = ( $uri === 'llms-full.txt' );
-
-        // Raw content pushed from Hub takes precedence over generated content.
-        if ( ! $is_full ) {
-            $raw = get_option( 'dhc_llms_txt_raw', '' );
-            if ( is_string( $raw ) && trim( $raw ) !== '' ) {
-                status_header( 200 );
-                header( 'Content-Type: text/plain; charset=utf-8' );
-                header( 'X-Robots-Tag: noindex' );
-                header( 'Cache-Control: public, max-age=3600' );
-                echo $raw;
-                exit;
-            }
-        }
 
         $profile = get_option( 'dhc_business_profile', array() );
         if ( empty( $profile ) ) {
@@ -182,9 +342,8 @@ class DHC_AI_Discovery {
         header( 'Content-Type: text/plain; charset=utf-8' );
         header( 'X-Robots-Tag: noindex' );
         header( 'Cache-Control: public, max-age=3600' );
-        echo $is_full
-            ? $this->generate_llms_full( $profile )
-            : $this->generate_llms_summary( $profile );
+        $rendered = $this->render_files( $profile, $this->get_editor_settings() );
+        echo $is_full ? $rendered['full'] : $rendered['llms'];
         exit;
     }
 
@@ -225,17 +384,6 @@ class DHC_AI_Discovery {
             }
         }
 
-        // Raw content pushed from Hub takes precedence over generated content.
-        if ( $is_llms && ! $is_llms_full ) {
-            $raw = get_option( 'dhc_llms_txt_raw', '' );
-            if ( is_string( $raw ) && trim( $raw ) !== '' ) {
-                header( 'Content-Type: text/plain; charset=utf-8' );
-                header( 'X-Robots-Tag: noindex' );
-                echo $raw;
-                exit;
-            }
-        }
-
         $profile = get_option( 'dhc_business_profile', array() );
         // Fall back to a site-metadata-derived profile so /llms.txt is
         // always a valid, useful response even before the user has filled
@@ -254,14 +402,14 @@ class DHC_AI_Discovery {
             }
         }
 
+        status_header( 200 );
+        if ( isset( $wp_query ) && is_object( $wp_query ) ) $wp_query->is_404 = false;
         header( 'Content-Type: text/plain; charset=utf-8' );
         header( 'X-Robots-Tag: noindex' );
+        header( 'Cache-Control: public, max-age=3600' );
 
-        if ( $is_llms_full ) {
-            echo $this->generate_llms_full( $profile );
-        } else {
-            echo $this->generate_llms_summary( $profile );
-        }
+        $rendered = $this->render_files( $profile, $this->get_editor_settings() );
+        echo $is_llms_full ? $rendered['full'] : $rendered['llms'];
         exit;
     }
 
@@ -350,9 +498,200 @@ class DHC_AI_Discovery {
         return $profile;
     }
 
+    /* ─── Link discovery, validation, and rendering ─── */
+
+    private function post_is_indexable( $post ) {
+        if ( ! $post || 'publish' !== $post->post_status ) return false;
+        $type = get_post_type_object( $post->post_type );
+        if ( ! $type || empty( $type->public ) ) return false;
+        if ( preg_match( '/(^|[-_])thank[-_]?you($|[-_])/i', (string) $post->post_name ) ) return false;
+        $yoast = strtolower( trim( (string) get_post_meta( $post->ID, '_yoast_wpseo_meta-robots-noindex', true ) ) );
+        if ( in_array( $yoast, array( '1', 'noindex' ), true ) ) return false;
+        $rank_math = get_post_meta( $post->ID, 'rank_math_robots', true );
+        if ( is_array( $rank_math ) && in_array( 'noindex', $rank_math, true ) ) return false;
+        if ( is_string( $rank_math ) && false !== stripos( $rank_math, 'noindex' ) ) return false;
+        if ( get_post_meta( $post->ID, '_aioseo_robots_noindex', true ) ) return false;
+        return true;
+    }
+
+    private function canonical_url_for_post( $post ) {
+        $url = function_exists( 'wp_get_canonical_url' ) ? wp_get_canonical_url( $post->ID ) : '';
+        if ( ! $url ) $url = get_permalink( $post->ID );
+        return esc_url_raw( $url );
+    }
+
+    private function description_for_post( $post ) {
+        $description = get_post_meta( $post->ID, '_yoast_wpseo_metadesc', true );
+        if ( ! $description ) $description = get_post_meta( $post->ID, 'rank_math_description', true );
+        if ( ! $description && function_exists( 'aioseo' ) ) $description = get_post_meta( $post->ID, '_aioseo_description', true );
+        if ( ! $description ) $description = has_excerpt( $post ) ? $post->post_excerpt : wp_strip_all_tags( strip_shortcodes( $post->post_content ) );
+        $description = trim( preg_replace( '/\s+/', ' ', html_entity_decode( (string) $description, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+        if ( function_exists( 'wp_html_excerpt' ) ) return wp_html_excerpt( $description, 120, strlen( $description ) > 120 ? '...' : '' );
+        return strlen( $description ) > 120 ? substr( $description, 0, 117 ) . '...' : $description;
+    }
+
+    private function section_for_post( $post ) {
+        if ( 'post' === $post->post_type ) return 'Blog/Resources';
+        $slug = strtolower( (string) $post->post_name );
+        $title = strtolower( wp_strip_all_tags( (string) $post->post_title ) );
+        $parent = $post->post_parent ? get_post( $post->post_parent ) : null;
+        $parent_key = $parent ? strtolower( $parent->post_name . ' ' . $parent->post_title ) : '';
+        $key = trim( $slug . ' ' . $title . ' ' . $parent_key );
+        if ( preg_match( '/\b(contact|book|schedule|request[- ]?(a[- ]?)?(quote|consultation))\b/', $key ) ) return 'Contact';
+        if ( preg_match( '/\b(location|locations|service[- ]area|areas[- ]served|find[- ]us)\b/', $key ) ) return 'Locations';
+        if ( preg_match( '/\b(service|services|treatment|program|offering|solutions)\b/', $key ) ) return 'Services';
+        return 'Key Pages';
+    }
+
+    private function auto_discovery_links() {
+        $links = array();
+        $post_types = get_post_types( array( 'public' => true ), 'names' );
+        unset( $post_types['attachment'] );
+        $resource_types = array_values( array_diff( $post_types, array( 'post' ) ) );
+        $pages = get_posts( array(
+            'post_type'      => $resource_types,
+            'post_status'    => 'publish',
+            'posts_per_page' => 80,
+            'orderby'        => array( 'menu_order' => 'ASC', 'date' => 'DESC' ),
+            'no_found_rows'  => true,
+        ) );
+        $articles = isset( $post_types['post'] ) ? get_posts( array(
+            'post_type' => 'post', 'post_status' => 'publish', 'posts_per_page' => 10,
+            'orderby' => 'date', 'order' => 'DESC', 'no_found_rows' => true,
+        ) ) : array();
+        foreach ( array_merge( $pages, $articles ) as $post ) {
+            if ( ! $this->post_is_indexable( $post ) ) continue;
+            $section = $this->section_for_post( $post );
+            if ( 'page' === $post->post_type && $post->post_parent && 'Locations' !== $section && 'Services' !== $section ) continue;
+            $url = $this->canonical_url_for_post( $post );
+            if ( ! $url ) continue;
+            $links[] = array(
+                'title'       => html_entity_decode( $post->post_title, ENT_QUOTES | ENT_HTML5, 'UTF-8' ),
+                'url'         => $url,
+                'description' => $this->description_for_post( $post ),
+                'section'     => $section,
+                'sort_order'  => count( $links ) + 1000,
+                'enabled'     => true,
+                'source'      => 'auto',
+            );
+        }
+        return $links;
+    }
+
+    public function validate_discovery_link( $url, $force = false ) {
+        $url = esc_url_raw( $url );
+        if ( ! $url || ! preg_match( '#^https?://#i', $url ) ) return array( 'ok' => false, 'status' => 0, 'noindex' => false, 'message' => 'URL must be absolute.' );
+        if ( function_exists( 'wp_http_validate_url' ) && ! wp_http_validate_url( $url ) ) {
+            return array( 'ok' => false, 'status' => 0, 'noindex' => false, 'message' => 'URL is not safe to request.' );
+        }
+        $site_host = strtolower( preg_replace( '/^www\./', '', (string) wp_parse_url( home_url(), PHP_URL_HOST ) ) );
+        $link_host = strtolower( preg_replace( '/^www\./', '', (string) wp_parse_url( $url, PHP_URL_HOST ) ) );
+        if ( ! $link_host || $link_host !== $site_host ) {
+            return array( 'ok' => false, 'status' => 0, 'noindex' => false, 'message' => 'Only links on this WordPress site can be published.' );
+        }
+        $cache_key = 'dhc_llms_link_' . md5( strtolower( $url ) );
+        if ( ! $force ) {
+            $cached = get_transient( $cache_key );
+            if ( is_array( $cached ) ) return $cached;
+        }
+        $post_id = url_to_postid( $url );
+        if ( $post_id ) {
+            $post = get_post( $post_id );
+            if ( ! $this->post_is_indexable( $post ) ) {
+                $result = array( 'ok' => false, 'status' => 'publish' === get_post_status( $post_id ) ? 200 : 404,
+                    'noindex' => true, 'message' => 'Excluded because the page is unpublished, noindex, or a thank-you page.' );
+                set_transient( $cache_key, $result, 12 * HOUR_IN_SECONDS );
+                return $result;
+            }
+            if ( ! $force ) {
+                $result = array( 'ok' => true, 'status' => 200, 'noindex' => false, 'message' => 'Published and indexable; live status is checked on preview or save.' );
+                return $result;
+            }
+        } elseif ( untrailingslashit( $url ) === untrailingslashit( home_url( '/' ) ) && ! $force ) {
+            $result = array( 'ok' => true, 'status' => 200, 'noindex' => false, 'message' => 'Homepage is published.' );
+            set_transient( $cache_key, $result, 12 * HOUR_IN_SECONDS );
+            return $result;
+        }
+
+        $response = wp_remote_head( $url, array( 'timeout' => 8, 'redirection' => 3, 'user-agent' => 'DsquaredHubConnector/' . DHC_VERSION . ' (llms-link-validator)' ) );
+        if ( is_wp_error( $response ) ) {
+            $result = array( 'ok' => false, 'status' => 0, 'noindex' => false, 'message' => $response->get_error_message() );
+        } else {
+            $status = intval( wp_remote_retrieve_response_code( $response ) );
+            $robots = strtolower( (string) wp_remote_retrieve_header( $response, 'x-robots-tag' ) );
+            $noindex = false !== strpos( $robots, 'noindex' );
+            $result = array( 'ok' => 200 === $status && ! $noindex, 'status' => $status, 'noindex' => $noindex,
+                'message' => $noindex ? 'Target sends an X-Robots-Tag noindex header.' : ( 200 === $status ? 'URL returned 200.' : 'URL returned HTTP ' . $status . '.' ) );
+        }
+        set_transient( $cache_key, $result, 12 * HOUR_IN_SECONDS );
+        return $result;
+    }
+
+    private function build_discovery_links( $settings ) {
+        $links = array();
+        $seen = array();
+        foreach ( (array) ( $settings['links'] ?? array() ) as $link ) {
+            if ( empty( $link['enabled'] ) ) continue;
+            $validation = $this->validate_discovery_link( $link['url'] );
+            if ( empty( $validation['ok'] ) ) continue;
+            $key = untrailingslashit( strtolower( $link['url'] ) );
+            $seen[ $key ] = true;
+            $link['source'] = 'curated';
+            $links[] = $link;
+        }
+        foreach ( $this->auto_discovery_links() as $link ) {
+            $validation = $this->validate_discovery_link( $link['url'] );
+            if ( empty( $validation['ok'] ) ) continue;
+            $key = untrailingslashit( strtolower( $link['url'] ) );
+            if ( isset( $seen[ $key ] ) ) continue;
+            $seen[ $key ] = true;
+            $links[] = $link;
+        }
+        return $links;
+    }
+
+    private function render_link_sections( $links ) {
+        $groups = array_fill_keys( array( 'Key Pages', 'Services', 'Locations', 'Blog/Resources', 'Contact' ), array() );
+        foreach ( $links as $link ) {
+            $section = isset( $groups[ $link['section'] ] ) ? $link['section'] : 'Key Pages';
+            $groups[ $section ][] = $link;
+        }
+        $output = '';
+        foreach ( $groups as $section => $items ) {
+            if ( empty( $items ) ) continue;
+            $output .= "## {$section}\n";
+            foreach ( $items as $item ) {
+                $title = preg_replace( '/[\[\]\r\n]+/', ' ', (string) ( $item['title'] ?? '' ) );
+                $description = preg_replace( '/[\r\n]+/', ' ', trim( (string) ( $item['description'] ?? '' ) ) );
+                $output .= '- [' . trim( $title ) . '](' . esc_url_raw( $item['url'] ) . ')' . ( $description ? ': ' . trim( $description ) : '' ) . "\n";
+            }
+            $output .= "\n";
+        }
+        return $output;
+    }
+
+    public function validate_rendered_files( $rendered, $force_links = false ) {
+        $llms = (string) ( $rendered['llms'] ?? '' );
+        preg_match_all( '/\[[^\]]+\]\((https?:\/\/[^)]+)\)/i', $llms, $matches );
+        $link_results = array();
+        foreach ( array_values( array_unique( $matches[1] ?? array() ) ) as $url ) {
+            $link_results[] = array_merge( array( 'url' => $url ), $this->validate_discovery_link( $url, $force_links ) );
+        }
+        $markdown_ok = (bool) preg_match( '/^#\s+.+/m', $llms ) && (bool) preg_match( '/^>\s+.+/m', $llms ) && ! empty( $link_results );
+        $links_ok = ! empty( $link_results ) && count( array_filter( $link_results, function( $row ) { return empty( $row['ok'] ); } ) ) === 0;
+        return array(
+            'markdown' => array( 'ok' => $markdown_ok, 'message' => $markdown_ok ? 'Heading, summary, sections, and Markdown links are present.' : 'Add a # title, > summary, and at least one Markdown link.' ),
+            'links'    => array( 'ok' => $links_ok, 'message' => $links_ok ? count( $link_results ) . ' links return 200 and are indexable.' : 'One or more links are unavailable, noindex, or missing.', 'items' => $link_results ),
+            'noindex'  => array( 'ok' => count( array_filter( $link_results, function( $row ) { return ! empty( $row['noindex'] ); } ) ) === 0, 'message' => 'No noindex targets are included.' ),
+            'size'     => array( 'ok' => strlen( $llms ) < 102400 && strlen( (string) ( $rendered['full'] ?? '' ) ) < 102400,
+                'message' => number_format_i18n( strlen( $llms ) ) . ' bytes for llms.txt; limit is 100KB per file.' ),
+            'checked_at' => current_time( 'mysql', true ),
+        );
+    }
+
     /* ─── Generate llms.txt (summary) ─── */
 
-    private function generate_llms_summary( $profile ) {
+    private function generate_llms_summary( $profile, $settings = null ) {
         // Format mirrors the Hub's Business Profile "Generate LLM Files"
         // output exactly (# name, > description, ## Type, ## Services,
         // ## Service Areas, ## Contact, ## Hours) so the live /llms.txt
@@ -376,7 +715,7 @@ class DHC_AI_Discovery {
         }
 
         if ( ! empty( $services ) ) {
-            $output .= "## Services\n";
+            $output .= "## Services Offered\n";
             foreach ( $services as $service ) {
                 $svc_name = is_array( $service ) ? ( $service['name'] ?? '' ) : $service;
                 $svc_desc = is_array( $service ) ? ( $service['description'] ?? '' ) : '';
@@ -398,22 +737,25 @@ class DHC_AI_Discovery {
             if ( $phone )   $output .= "- Phone: {$phone}\n";
             if ( $email )   $output .= "- Email: {$email}\n";
             if ( $address ) $output .= "- Address: {$address}\n";
-            $output .= "- Website: {$url}\n\n";
+            $output .= "- Website: [{$name}]({$url})\n\n";
         }
 
         if ( $hours ) {
             $output .= "## Hours\n{$hours}\n\n";
         }
 
+        if ( ! is_array( $settings ) ) $settings = $this->get_editor_settings();
+        $output .= $this->render_link_sections( $this->build_discovery_links( $settings ) );
+
         $output .= "## More Information\n";
-        $output .= "- Full details: " . home_url( '/llms-full.txt' ) . "\n";
+        $output .= "- [Complete business profile](" . home_url( '/llms-full.txt' ) . "): Expanded services, business facts, and resources.\n";
 
         return rtrim( $output ) . "\n";
     }
 
     /* ─── Generate llms-full.txt (detailed) ─── */
 
-    private function generate_llms_full( $profile ) {
+    private function generate_llms_full( $profile, $settings = null ) {
         $name     = html_entity_decode( $profile['business_name'] ?? get_bloginfo( 'name' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
         $desc     = html_entity_decode( $profile['description'] ?? get_bloginfo( 'description' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
         $url      = home_url( '/' );
@@ -434,7 +776,7 @@ class DHC_AI_Discovery {
 
         // Contact info
         $output .= "## Contact Information\n\n";
-        $output .= "- Website: {$url}\n";
+        $output .= "- Website: [{$name}]({$url})\n";
         if ( $phone )   $output .= "- Phone: {$phone}\n";
         if ( $email )   $output .= "- Email: {$email}\n";
         if ( $address ) $output .= "- Address: {$address}\n";
@@ -504,26 +846,8 @@ class DHC_AI_Discovery {
             }
         }
 
-        // Top pages
-        $output .= "## Key Pages\n\n";
-        $pages = get_pages( array( 'number' => 20, 'sort_column' => 'menu_order' ) );
-        foreach ( $pages as $page ) {
-            $title   = html_entity_decode( $page->post_title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-            $output .= "- [{$title}](" . get_permalink( $page->ID ) . ")\n";
-        }
-        $output .= "\n";
-
-        // Recent posts
-        $posts = get_posts( array( 'numberposts' => 10, 'post_status' => 'publish' ) );
-        if ( ! empty( $posts ) ) {
-            $output .= "## Recent Articles\n\n";
-            foreach ( $posts as $post ) {
-                $date    = date( 'm/d/Y', strtotime( $post->post_date ) );
-                $title   = html_entity_decode( $post->post_title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-                $output .= "- [{$title}](" . get_permalink( $post->ID ) . ") \xe2\x80\x94 {$date}\n";
-            }
-            $output .= "\n";
-        }
+        if ( ! is_array( $settings ) ) $settings = $this->get_editor_settings();
+        $output .= $this->render_link_sections( $this->build_discovery_links( $settings ) );
 
         $output .= "---\n";
         $output .= "Last updated: " . date( 'm/d/Y' ) . "\n";
@@ -755,61 +1079,125 @@ class DHC_AI_Discovery {
 
     public function ping_indexnow( $post_id ) {
         $post = get_post( $post_id );
-        if ( ! $post || $post->post_status !== 'publish' ) return;
-
-        $url = get_permalink( $post_id );
-        $this->send_indexnow( array( $url ) );
+        if ( ! $this->post_is_indexable( $post ) ) return;
+        $this->queue_indexnow_urls( array( $this->canonical_url_for_post( $post ) ), 'content' );
     }
 
     public function on_content_update( $post_id, $post, $update ) {
-        if ( ! $update || $post->post_status !== 'publish' ) return;
         if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) return;
+        $type = get_post_type_object( $post->post_type );
+        if ( ! $type || empty( $type->public ) ) return;
+        $this->regenerate_static_files();
+        if ( $this->post_is_indexable( $post ) ) $this->ping_indexnow( $post_id );
+    }
 
-        // Debounce: don't ping more than once per 5 minutes per post
-        $last_ping = get_post_meta( $post_id, '_dhc_last_indexnow_ping', true );
-        if ( $last_ping && ( time() - intval( $last_ping ) ) < 300 ) return;
+    public function on_content_removed( $post_id ) {
+        $post = get_post( $post_id );
+        if ( $post ) {
+            $type = get_post_type_object( $post->post_type );
+            if ( $type && ! empty( $type->public ) ) {
+                $url = get_permalink( $post_id );
+                if ( $url ) $this->queue_indexnow_urls( array( $url ), 'content_removed' );
+            }
+        }
+        $this->regenerate_static_files();
+    }
 
-        update_post_meta( $post_id, '_dhc_last_indexnow_ping', time() );
+    public function on_redirects_changed( $old_value, $value, $option = '' ) {
+        $urls = array();
+        foreach ( (array) $value as $redirect ) {
+            $from = trim( (string) ( $redirect['from'] ?? '' ) );
+            $to = trim( (string) ( $redirect['to'] ?? '' ) );
+            if ( $from ) $urls[] = home_url( '/' . ltrim( $from, '/' ) );
+            if ( $to ) $urls[] = preg_match( '#^https?://#i', $to ) ? $to : home_url( '/' . ltrim( $to, '/' ) );
+        }
+        $this->queue_indexnow_urls( $urls, 'redirects' );
+    }
 
-        $url = get_permalink( $post_id );
-        $this->send_indexnow( array( $url ) );
+    private function indexnow_url_allowed( $url ) {
+        $url = esc_url_raw( $url );
+        if ( ! $url ) return false;
+        $site_host = strtolower( preg_replace( '/^www\./', '', (string) wp_parse_url( home_url(), PHP_URL_HOST ) ) );
+        $url_host = strtolower( preg_replace( '/^www\./', '', (string) wp_parse_url( $url, PHP_URL_HOST ) ) );
+        if ( ! $url_host || $site_host !== $url_host ) return false;
+        $post_id = url_to_postid( $url );
+        if ( $post_id && ! $this->post_is_indexable( get_post( $post_id ) ) ) return false;
+        return true;
+    }
+
+    public function queue_indexnow_urls( $urls, $source = 'content' ) {
+        $queue = get_option( self::INDEXNOW_QUEUE_OPTION, array() );
+        if ( ! is_array( $queue ) ) $queue = array();
+        foreach ( (array) $urls as $url ) {
+            $url = esc_url_raw( $url );
+            if ( $this->indexnow_url_allowed( $url ) ) $queue[ untrailingslashit( strtolower( $url ) ) ] = $url;
+        }
+        $queue = array_slice( $queue, -2000, null, true );
+        update_option( self::INDEXNOW_QUEUE_OPTION, $queue, false );
+        if ( ! empty( $queue ) && ! wp_next_scheduled( self::INDEXNOW_CRON_HOOK ) ) {
+            $last = intval( get_option( self::INDEXNOW_LAST_OPTION, 0 ) );
+            wp_schedule_single_event( max( time() + 1, $last + 60 ), self::INDEXNOW_CRON_HOOK );
+        }
+        $this->log_activity( 'IndexNow queued ' . count( $queue ) . ' URL(s) (' . sanitize_key( $source ) . ')' );
+        return count( $queue );
+    }
+
+    public function flush_indexnow_queue() {
+        $last = intval( get_option( self::INDEXNOW_LAST_OPTION, 0 ) );
+        if ( $last && time() - $last < 60 ) {
+            if ( ! wp_next_scheduled( self::INDEXNOW_CRON_HOOK ) ) wp_schedule_single_event( $last + 60, self::INDEXNOW_CRON_HOOK );
+            return array( 'queued' => count( (array) get_option( self::INDEXNOW_QUEUE_OPTION, array() ) ), 'deferred' => true );
+        }
+        $queue = get_option( self::INDEXNOW_QUEUE_OPTION, array() );
+        if ( ! is_array( $queue ) || empty( $queue ) ) return array( 'queued' => 0, 'submitted' => 0 );
+        $batch = array_slice( array_values( $queue ), 0, 100 );
+        $remaining = array_slice( $queue, count( $batch ), null, true );
+        $key = $this->get_indexnow_key();
+        $payload = array(
+            'host'        => wp_parse_url( home_url(), PHP_URL_HOST ),
+            'key'         => $key,
+            'keyLocation' => home_url( '/' . $key . '.txt' ),
+            'urlList'     => $batch,
+        );
+        $response = wp_remote_post( 'https://api.indexnow.org/indexnow', array(
+            'body' => wp_json_encode( $payload ), 'headers' => array( 'Content-Type' => 'application/json; charset=utf-8' ),
+            'timeout' => 12, 'blocking' => true,
+        ) );
+        $code = is_wp_error( $response ) ? 0 : intval( wp_remote_retrieve_response_code( $response ) );
+        $message = is_wp_error( $response ) ? $response->get_error_message() : trim( wp_strip_all_tags( wp_remote_retrieve_body( $response ) ) );
+        if ( ! is_wp_error( $response ) && in_array( $code, array( 200, 202 ), true ) ) {
+            update_option( self::INDEXNOW_QUEUE_OPTION, $remaining, false );
+            update_option( self::INDEXNOW_LAST_OPTION, time(), false );
+        } else {
+            $remaining = $queue;
+        }
+        $this->log_activity( 'IndexNow response ' . ( $code ?: 'error' ) . ' for ' . count( $batch ) . ' URL(s)' . ( $message ? ': ' . substr( $message, 0, 160 ) : '' ) );
+        $this->report_to_hub( 'indexnow_ping', array( 'urls' => $batch, 'status' => $code, 'time' => current_time( 'mysql' ) ) );
+        if ( ! empty( $remaining ) && ! wp_next_scheduled( self::INDEXNOW_CRON_HOOK ) ) wp_schedule_single_event( time() + 60, self::INDEXNOW_CRON_HOOK );
+        return array( 'queued' => count( $remaining ), 'submitted' => in_array( $code, array( 200, 202 ), true ) ? count( $batch ) : 0, 'status' => $code );
     }
 
     private function send_indexnow( $urls ) {
-        $key = $this->get_indexnow_key();
-        $host = wp_parse_url( home_url(), PHP_URL_HOST );
+        return $this->queue_indexnow_urls( $urls, 'legacy' );
+    }
 
-        $payload = array(
-            'host'        => $host,
-            'key'         => $key,
-            'keyLocation' => home_url( '/' . $key . '.txt' ),
-            'urlList'     => $urls,
-        );
-
-        // Ping Bing/Yandex via IndexNow
-        $endpoints = array(
-            'https://api.indexnow.org/indexnow',
-            'https://www.bing.com/indexnow',
-            'https://yandex.com/indexnow',
-        );
-
-        foreach ( $endpoints as $endpoint ) {
-            wp_remote_post( $endpoint, array(
-                'body'    => wp_json_encode( $payload ),
-                'headers' => array( 'Content-Type' => 'application/json' ),
-                'timeout' => 10,
-                'blocking' => false,
-            ) );
-        }
-
-        // Log activity
-        $this->log_activity( 'IndexNow pinged for ' . count( $urls ) . ' URL(s)' );
-
-        // Report to Hub
-        $this->report_to_hub( 'indexnow_ping', array(
-            'urls'  => $urls,
-            'time'  => current_time( 'mysql' ),
+    public function submit_all_public_urls( $source = 'admin' ) {
+        $urls = array( home_url( '/' ) );
+        $post_types = get_post_types( array( 'public' => true ), 'names' );
+        unset( $post_types['attachment'] );
+        $post_ids = get_posts( array(
+            'post_type' => array_values( $post_types ), 'post_status' => 'publish',
+            'posts_per_page' => -1, 'fields' => 'ids', 'no_found_rows' => true,
         ) );
+        foreach ( $post_ids as $post_id ) {
+            $post = get_post( $post_id );
+            if ( ! $this->post_is_indexable( $post ) ) continue;
+            $url = $this->canonical_url_for_post( $post );
+            if ( $url ) $urls[] = $url;
+        }
+        $urls = array_values( array_unique( array_filter( $urls ) ) );
+        $count = $this->queue_indexnow_urls( $urls, $source );
+        return array( 'queued' => $count, 'found' => count( $urls ) );
     }
 
     private function get_indexnow_key() {
@@ -824,9 +1212,15 @@ class DHC_AI_Discovery {
 
     public function serve_indexnow_key() {
         $key = $this->get_indexnow_key();
-        $uri = trim( $_SERVER['REQUEST_URI'], '/' );
+        $path = parse_url( (string) ( $_SERVER['REQUEST_URI'] ?? '' ), PHP_URL_PATH );
+        $uri = trim( (string) $path, '/' );
         if ( $uri === $key . '.txt' ) {
-            header( 'Content-Type: text/plain' );
+            global $wp_query;
+            status_header( 200 );
+            if ( isset( $wp_query ) && is_object( $wp_query ) ) $wp_query->is_404 = false;
+            header( 'Content-Type: text/plain; charset=utf-8' );
+            header( 'Cache-Control: public, max-age=86400' );
+            header( 'Content-Length: ' . strlen( $key ) );
             echo $key;
             exit;
         }
@@ -866,22 +1260,23 @@ class DHC_AI_Discovery {
     /* ─── Robots.txt Entries ─── */
 
     public function add_robots_entries( $output, $public ) {
-        $output .= "\n# Dsquared Hub Connector — AI Discovery\n";
-        $output .= "Allow: /llms.txt\n";
-        $output .= "Allow: /llms-full.txt\n";
-        $output .= "Allow: /.well-known/ai-plugin.json\n";
-        $output .= "\n# LLM-specific crawlers\n";
-        $output .= "User-agent: GPTBot\n";
-        $output .= "Allow: /\n";
-        $output .= "User-agent: Google-Extended\n";
-        $output .= "Allow: /\n";
-        $output .= "User-agent: PerplexityBot\n";
-        $output .= "Allow: /\n";
-        $output .= "User-agent: ClaudeBot\n";
-        $output .= "Allow: /\n";
-        $output .= "User-agent: Applebot-Extended\n";
-        $output .= "Allow: /\n";
-        return $output;
+        // Remove the marker-bounded v1.21+ block. For the legacy unbounded
+        // block, remove it only when the Yoast boundary is present; never eat
+        // unrelated robots rules merely because another plugin changed order.
+        $output = preg_replace( '/\n?# Dsquared Hub Connector - AI Discovery\n[\s\S]*?# \/Dsquared Hub Connector - AI Discovery\n?/i', "\n", (string) $output );
+        $output = preg_replace( '/\n?# Dsquared Hub Connector[^\n]*AI Discovery[\s\S]*?(?=\n# START YOAST BLOCK)/i', "\n", (string) $output );
+        $block  = "# Dsquared Hub Connector - AI Discovery\n";
+        $block .= "User-agent: *\n";
+        $block .= "Allow: /llms.txt\n";
+        $block .= "Allow: /llms-full.txt\n";
+        $block .= "Allow: /.well-known/ai-plugin.json\n\n";
+        $block .= "# AI crawlers\n";
+        foreach ( array( 'GPTBot', 'Google-Extended', 'PerplexityBot', 'ClaudeBot', 'Applebot-Extended', 'OAI-SearchBot', 'ChatGPT-User' ) as $agent ) {
+            if ( preg_match( '/^\s*User-agent:\s*' . preg_quote( $agent, '/' ) . '\s*$/mi', (string) $output ) ) continue;
+            $block .= "User-agent: {$agent}\nAllow: /\n\n";
+        }
+        $block .= "# /Dsquared Hub Connector - AI Discovery\n";
+        return rtrim( $output ) . "\n\n" . $block;
     }
 
     /* ─── REST Routes ─── */
@@ -911,6 +1306,17 @@ class DHC_AI_Discovery {
             'callback'            => array( $this, 'write_raw_content' ),
             'permission_callback' => array( $this, 'check_api_key' ),
         ) );
+
+        register_rest_route( 'dsquared-hub/v1', '/ai-discovery/llms', array(
+            array( 'methods' => 'GET', 'callback' => array( $this, 'rest_get_llms' ), 'permission_callback' => array( $this, 'check_api_key' ) ),
+            array( 'methods' => 'POST', 'callback' => array( $this, 'rest_save_llms' ), 'permission_callback' => array( $this, 'check_api_key' ) ),
+        ) );
+        register_rest_route( 'dsquared-hub/v1', '/ai-discovery/llms/regenerate', array(
+            'methods' => 'POST', 'callback' => array( $this, 'rest_regenerate_llms' ), 'permission_callback' => array( $this, 'check_api_key' ),
+        ) );
+        register_rest_route( 'dsquared-hub/v1', '/ai-discovery/indexnow/submit', array(
+            'methods' => 'POST', 'callback' => array( $this, 'rest_submit_indexnow' ), 'permission_callback' => array( $this, 'check_api_key' ),
+        ) );
     }
 
     /**
@@ -924,18 +1330,50 @@ class DHC_AI_Discovery {
 
     public function check_api_key( $request ) {
         $result = DHC_API_Key::authenticate_request( $request );
-        return ( true === $result );
+        if ( true !== $result ) return new WP_Error( 'dhc_unauthorized', 'A valid Dsquared Hub API key is required.', array( 'status' => 401 ) );
+        if ( ! DHC_API_Key::is_module_available( 'ai_discovery' ) ) {
+            return new WP_Error( 'dhc_ai_discovery_unavailable', 'AI Discovery is not available on the current subscription.', array( 'status' => 403 ) );
+        }
+        return true;
+    }
+
+    public function rest_get_llms( $request ) {
+        $settings = $this->get_editor_settings();
+        $rendered = $this->render_files( null, $settings );
+        return new WP_REST_Response( array( 'success' => true, 'settings' => $settings, 'rendered' => $rendered,
+            'validation' => get_option( self::VALIDATION_OPTION, array() ) ), 200 );
+    }
+
+    public function rest_save_llms( $request ) {
+        $data = $request->get_json_params();
+        $saved = $this->save_editor_settings( $data, 'hub' );
+        if ( is_wp_error( $saved['files'] ) ) return $saved['files'];
+        return new WP_REST_Response( array( 'success' => true, 'settings' => $saved['settings'], 'rendered' => $saved['rendered'],
+            'validation' => $saved['validation'] ), 200 );
+    }
+
+    public function rest_regenerate_llms( $request ) {
+        $files = $this->regenerate_static_files();
+        if ( is_wp_error( $files ) ) return $files;
+        $rendered = $this->render_files();
+        $validation = $this->validate_rendered_files( $rendered, true );
+        update_option( self::VALIDATION_OPTION, $validation, false );
+        $this->log_activity( 'AI Discovery files regenerated (hub)' );
+        return new WP_REST_Response( array( 'success' => true, 'files' => array_map( 'basename', $files ), 'rendered' => $rendered, 'validation' => $validation ), 200 );
+    }
+
+    public function rest_submit_indexnow( $request ) {
+        $data = $request->get_json_params();
+        $urls = array_values( array_filter( array_map( 'esc_url_raw', (array) ( $data['urls'] ?? array() ) ) ) );
+        $result = empty( $urls ) ? $this->submit_all_public_urls( 'hub' ) : array( 'queued' => $this->queue_indexnow_urls( $urls, 'hub' ), 'found' => count( $urls ) );
+        return new WP_REST_Response( array_merge( array( 'success' => true ), $result ), 202 );
     }
 
     /**
      * Write verbatim llms.txt content sent from the Hub.
      *
-     * Stores in two places so both server configurations are covered:
-     *   1. Physical file at ABSPATH/llms.txt — nginx hosts with try_files
-     *      serve this directly without invoking PHP.
-     *   2. dhc_llms_txt_raw WP option — dynamic handlers check this first
-     *      so PHP-served hosts also return the curated content rather than
-     *      re-generating from the business profile.
+     * Saves into the versioned editor option in manual mode, then regenerates
+     * the same physical and dynamic output used by wp-admin and the REST API.
      */
     public function write_raw_content( $request ) {
         $data    = $request->get_json_params();
@@ -949,20 +1387,13 @@ class DHC_AI_Discovery {
         $content = str_replace( "\r", "\n", $content );
         $content = preg_replace( '/\0/', '', $content );
 
-        // Write physical file — required on nginx hosts.
-        $path = ABSPATH . 'llms.txt';
-        $ok   = @file_put_contents( $path, $content );
-        if ( $ok === false ) {
-            return new WP_Error(
-                'write_failed',
-                'Could not write to ' . $path . '. Check WP-root write permissions.',
-                array( 'status' => 500 )
-            );
-        }
-        @chmod( $path, 0644 );
-
-        // Store in option so PHP dynamic handler serves the same content.
-        update_option( 'dhc_llms_txt_raw', $content );
+        $saved = $this->save_editor_settings( array(
+            'mode' => 'manual', 'custom_content' => $content,
+            'links' => $this->get_editor_settings()['links'],
+            'full_manual' => $this->get_editor_settings()['full_manual'],
+            'full_custom_content' => $this->get_editor_settings()['full_custom_content'],
+        ), 'hub' );
+        if ( is_wp_error( $saved['files'] ) ) return $saved['files'];
 
         $this->log_activity( 'Raw llms.txt written (' . strlen( $content ) . ' bytes) via Hub push' );
 
@@ -976,7 +1407,7 @@ class DHC_AI_Discovery {
 
         return new WP_REST_Response( array(
             'success' => true,
-            'message' => 'llms.txt written (' . strlen( $content ) . ' bytes)',
+            'message' => 'llms.txt saved in manual mode (' . strlen( $content ) . ' bytes)',
             'url'     => home_url( '/llms.txt' ),
         ), 200 );
     }
@@ -1061,12 +1492,13 @@ class DHC_AI_Discovery {
     public function manual_ping( $request ) {
         $data = $request->get_json_params();
         $urls = $data['urls'] ?? array( home_url( '/' ) );
-        $this->send_indexnow( $urls );
+        $queued = $this->queue_indexnow_urls( $urls, 'hub' );
 
         return new WP_REST_Response( array(
             'success' => true,
-            'message' => 'IndexNow ping sent for ' . count( $urls ) . ' URL(s).',
-        ), 200 );
+            'message' => 'IndexNow queued ' . $queued . ' URL(s) for the next batch.',
+            'queued'  => $queued,
+        ), 202 );
     }
 
     /* ─── Hub Reporting ─── */

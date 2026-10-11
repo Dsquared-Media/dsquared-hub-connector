@@ -297,7 +297,7 @@ class DHC_Event_Tracker {
 		// public-safe) NOT dhc_api_key (private connector key — must never
 		// appear in public HTML because the same key authenticates privileged
 		// Hub and WordPress REST write routes).
-		$telemetry_token = get_option( 'dhc_telemetry_token', '' );
+		$telemetry_token = DHC_Heartbeat::public_telemetry_token();
 		$hub_base = defined( 'DHC_HUB_API_BASE' ) ? DHC_HUB_API_BASE : 'https://hub.dsquaredmedia.net/api';
 		$beacon = ( ! empty( $cfg['send_to_hub'] ) && ! empty( $telemetry_token ) )
 			? array(

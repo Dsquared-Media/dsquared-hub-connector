@@ -91,16 +91,31 @@
         });
     });
 
-    // Save AI Discovery business profile
-    $(document).on('click', '#dhc-save-ai-discovery', function() {
-        var btn = $(this);
-        var status = $('#dhc-ai-discovery-status');
+    function llmsSettings() {
+        var links = [];
+        $('.dhc-llms-link-row').each(function() {
+            var row = $(this);
+            links.push({
+                title: row.find('.dhc-link-title').val() || '',
+                url: row.find('.dhc-link-url').val() || '',
+                description: row.find('.dhc-link-description').val() || '',
+                section: row.find('.dhc-link-section').val() || 'Key Pages',
+                sort_order: parseInt(row.find('.dhc-link-order').val(), 10) || 0,
+                enabled: row.find('.dhc-link-on').is(':checked')
+            });
+        });
+        return {
+            mode: $('input[name="dhc-llms-mode"]:checked').val() || 'auto',
+            links: links,
+            custom_content: $('#dhc-llms-custom-content').val() || '',
+            full_manual: $('#dhc-llms-full-manual').is(':checked'),
+            full_custom_content: $('#dhc-llms-full-content').val() || ''
+        };
+    }
 
-        btn.prop('disabled', true).text('Saving & Generating...');
-        status.text('').removeClass('success error');
-
-        $.post(dhcAdmin.ajaxUrl, {
-            action: 'dhc_save_ai_discovery',
+    function aiProfilePayload(action) {
+        return {
+            action: action,
             nonce: dhcAdmin.nonce,
             business_name: $('#dhc-biz-name').val(),
             description: $('#dhc-biz-desc').val(),
@@ -110,19 +125,104 @@
             address: $('#dhc-biz-address').val(),
             service_areas_text: $('#dhc-biz-areas').val(),
             hours: $('#dhc-biz-hours').val(),
-            extra_info: $('#dhc-biz-extra').val()
-        }, function(response) {
-            btn.prop('disabled', false).text('Save & Generate Files');
-            if (response.success) {
-                status.text(response.data || 'Profile saved and files generated!').addClass('success').removeClass('error');
-                setTimeout(function() { status.text(''); }, 4000);
-            } else {
-                status.text(response.data || 'Save failed.').addClass('error').removeClass('success');
-            }
-        }).fail(function() {
-            btn.prop('disabled', false).text('Save & Generate Files');
-            status.text('Network error.').addClass('error').removeClass('success');
+            extra_info: $('#dhc-biz-extra').val(),
+            settings: JSON.stringify(llmsSettings())
+        };
+    }
+
+    function renderValidation(validation) {
+        var panel = $('#dhc-llms-validation').empty();
+        ['markdown', 'links', 'noindex', 'size'].forEach(function(key) {
+            var row = validation && validation[key] ? validation[key] : { ok: false, message: key };
+            $('<div>', { class: 'dhc-validation-row ' + (row.ok ? 'is-valid' : 'is-invalid') })
+                .append($('<span>', { class: 'dashicons ' + (row.ok ? 'dashicons-yes-alt' : 'dashicons-warning') }))
+                .append($('<span>').text(row.message || key))
+                .appendTo(panel);
         });
+    }
+
+    function applyAiDiscoveryResult(data) {
+        if (data && data.rendered) $('#dhc-llms-preview').text(data.rendered.llms || '');
+        if (data && data.validation) renderValidation(data.validation);
+    }
+
+    function updateAiMode() {
+        var mode = $('input[name="dhc-llms-mode"]:checked').val() || 'auto';
+        $('.dhc-custom-content-wrap').toggle(mode !== 'auto');
+        $('#dhc-llms-full-content').prop('hidden', !$('#dhc-llms-full-manual').is(':checked'));
+    }
+    $(document).on('change', 'input[name="dhc-llms-mode"], #dhc-llms-full-manual', updateAiMode);
+    updateAiMode();
+
+    function addLlmsLinkRow(link) {
+        link = link || {};
+        var row = $('<div>', { class: 'dhc-llms-link-row' });
+        function field(label, cls, type, value) {
+            return $('<label>').append($('<span>').text(label)).append($('<input>', { class: 'dhc-input ' + cls, type: type || 'text', value: value || '' }));
+        }
+        row.append(field('Title', 'dhc-link-title', 'text', link.title));
+        row.append(field('URL', 'dhc-link-url', 'url', link.url).addClass('dhc-link-url-wrap'));
+        row.append(field('Description', 'dhc-link-description', 'text', link.description).addClass('dhc-link-description-wrap'));
+        var select = $('<select>', { class: 'dhc-input dhc-link-section' });
+        ['Key Pages', 'Services', 'Locations', 'Blog/Resources', 'Contact'].forEach(function(section) { select.append($('<option>').val(section).text(section)); });
+        select.val(link.section || 'Key Pages');
+        row.append($('<label>').append($('<span>').text('Section')).append(select));
+        row.append(field('Order', 'dhc-link-order', 'number', link.sort_order || 0));
+        row.append($('<label>', { class: 'dhc-link-enabled' }).append($('<input>', { class: 'dhc-link-on', type: 'checkbox', checked: link.enabled !== false })).append($('<span>').text('On')));
+        row.append($('<button>', { class: 'dhc-link-remove', type: 'button', 'aria-label': 'Remove link', text: '×' }));
+        $('#dhc-llms-links').append(row);
+        $('#dhc-llms-links-empty').prop('hidden', true);
+    }
+    $(document).on('click', '#dhc-add-llms-link', function() { addLlmsLinkRow(); });
+    $(document).on('click', '.dhc-link-remove', function() {
+        $(this).closest('.dhc-llms-link-row').remove();
+        $('#dhc-llms-links-empty').prop('hidden', $('.dhc-llms-link-row').length > 0);
+    });
+    if (!$('.dhc-llms-link-row').length) addLlmsLinkRow({ enabled: true });
+
+    // Save AI Discovery business profile and the versioned llms editor.
+    $(document).on('click', '#dhc-save-ai-discovery', function() {
+        var btn = $(this), status = $('#dhc-ai-discovery-status'), original = btn.text();
+        btn.prop('disabled', true).text('Saving & regenerating…');
+        status.text('').removeClass('success error');
+        $.post(dhcAdmin.ajaxUrl, aiProfilePayload('dhc_save_ai_discovery'), function(response) {
+            btn.prop('disabled', false).text(original);
+            if (response.success) {
+                applyAiDiscoveryResult(response.data);
+                status.text(response.data.message || 'Saved and regenerated.').addClass('success').removeClass('error');
+            } else status.text((response.data && response.data.message) || response.data || 'Save failed.').addClass('error').removeClass('success');
+        }).fail(function() { btn.prop('disabled', false).text(original); status.text('Network error.').addClass('error').removeClass('success'); });
+    });
+
+    $(document).on('click', '#dhc-preview-ai-discovery', function() {
+        var btn = $(this), status = $('#dhc-ai-discovery-status'), original = btn.text();
+        btn.prop('disabled', true).text('Checking links…');
+        $.post(dhcAdmin.ajaxUrl, aiProfilePayload('dhc_preview_ai_discovery'), function(response) {
+            btn.prop('disabled', false).text(original);
+            if (response.success) { applyAiDiscoveryResult(response.data); status.text('Preview updated. Nothing was saved.').addClass('success').removeClass('error'); }
+            else status.text((response.data && response.data.message) || response.data || 'Preview failed.').addClass('error').removeClass('success');
+        }).fail(function() { btn.prop('disabled', false).text(original); status.text('Network error.').addClass('error').removeClass('success'); });
+    });
+
+    $(document).on('click', '#dhc-reset-ai-discovery', function() {
+        if (!window.confirm('Reset llms.txt to automatic generation? Your curated links and custom text will be cleared.')) return;
+        $.post(dhcAdmin.ajaxUrl, { action: 'dhc_reset_ai_discovery', nonce: dhcAdmin.nonce }, function(response) {
+            if (!response.success) return $('#dhc-ai-discovery-status').text(response.data || 'Reset failed.').addClass('error');
+            $('input[name="dhc-llms-mode"][value="auto"]').prop('checked', true);
+            $('#dhc-llms-links').empty(); addLlmsLinkRow({ enabled: true });
+            $('#dhc-llms-custom-content, #dhc-llms-full-content').val(''); $('#dhc-llms-full-manual').prop('checked', false);
+            updateAiMode(); applyAiDiscoveryResult(response.data);
+            $('#dhc-ai-discovery-status').text(response.data.message || 'Reset to auto.').addClass('success').removeClass('error');
+        });
+    });
+
+    $(document).on('click', '#dhc-submit-indexnow-all', function() {
+        var btn = $(this), status = $('#dhc-indexnow-status'), original = btn.text();
+        btn.prop('disabled', true).text('Queueing URLs…');
+        $.post(dhcAdmin.ajaxUrl, { action: 'dhc_submit_indexnow_all', nonce: dhcAdmin.nonce }, function(response) {
+            btn.prop('disabled', false).text(original);
+            status.text(response.success ? response.data.message : (response.data || 'Submission failed.')).toggleClass('success', !!response.success).toggleClass('error', !response.success);
+        }).fail(function() { btn.prop('disabled', false).text(original); status.text('Network error.').addClass('error'); });
     });
 
     // Refresh Connection (re-validate API key) — uses Dashicons spinner instead of SVG

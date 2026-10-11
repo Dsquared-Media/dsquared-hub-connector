@@ -250,8 +250,9 @@ class DHC_API_Key {
             );
         }
 
-        // Verify subscription is active
-        $subscription = self::validate( $stored_key );
+        // Privileged requests must observe Hub revocation immediately; the
+        // subscription cache is only for passive module/UI availability.
+        $subscription = self::validate( $stored_key, true );
         if ( ! $subscription['valid'] ) {
             return new WP_Error(
                 'dhc_subscription_inactive',

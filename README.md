@@ -2,7 +2,7 @@
 
 **Connect your WordPress site to the Dsquared Media Hub** — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, make your business visible to AI search, detect stale content, and capture leads with built-in spam filtering. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
 
-![Version](https://img.shields.io/badge/version-1.5.0-5661FF)
+![Version](https://img.shields.io/badge/version-1.21.1-5661FF)
 ![WordPress](https://img.shields.io/badge/WordPress-5.8%2B-21759b)
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-777BB4)
 ![License](https://img.shields.io/badge/license-GPL--2.0-green)

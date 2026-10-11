@@ -45,6 +45,7 @@ test('guided mode only accepts schemas it can round-trip without data loss', () 
     'function get_post_meta($id,$key,$single=true){return $id===42&&$key==="_d2_custom_schema"?array("@type"=>"Organization"):"";}',
     `require ${JSON.stringify(classFile)};`,
     '$method=new ReflectionMethod("DHC_Schema","guided_schema_is_lossless");',
+    'if(PHP_VERSION_ID<80100)$method->setAccessible(true);',
     '$article=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"Article","headline"=>"Title","author"=>array("@type"=>"Person","name"=>"Jane")));',
     '$organization=$method->invoke(null,array("@context"=>"https://schema.org","@type"=>"Organization","name"=>"Example","telephone"=>"555-1212"));',
     '$context=$method->invoke(null,array("@context"=>array("https://schema.org"),"@type"=>"Organization","name"=>"Example"));',
