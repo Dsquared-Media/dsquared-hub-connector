@@ -111,7 +111,7 @@ class DHC_REST {
         register_rest_route( self::NAMESPACE, '/ai-discovery', array(
             'methods'             => 'POST',
             'callback'            => array( 'DHC_AI_Discovery', 'handle_request' ),
-            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
+            'permission_callback' => array( 'DHC_AI_Discovery', 'check_legacy_api_access' ),
             'args'                => array(
                 'business_name' => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
                 'description'   => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_textarea_field' ),
@@ -122,20 +122,6 @@ class DHC_REST {
                 'address'       => array( 'required' => false, 'type' => 'object' ),
                 'hours'         => array( 'required' => false, 'type' => 'object' ),
             ),
-        ) );
-
-        // ── Content Decay — trigger scan ────────────────────────
-        register_rest_route( self::NAMESPACE, '/content-decay', array(
-            'methods'             => 'GET',
-            'callback'            => array( 'DHC_Content_Decay', 'handle_request' ),
-            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
-        ) );
-
-        // ── Form Capture — lead stats ───────────────────────────
-        register_rest_route( self::NAMESPACE, '/leads', array(
-            'methods'             => 'GET',
-            'callback'            => array( 'DHC_Form_Capture', 'handle_stats_request' ),
-            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
         ) );
 
         // ── Media / Alt Text Updates (v1.9) ─────────────────────

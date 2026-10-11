@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.20.0
+Stable tag: 1.23.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -16,7 +16,7 @@ The **Dsquared Hub Connector** bridges your WordPress website directly to your D
 
 All features are subscription-gated via an API key. If your subscription lapses, the plugin gracefully disables its features without affecting your website's functionality or breaking any existing content.
 
-### Core Modules (v1.5.0)
+### Core Modules (v1.23.1)
 
 *   **Auto-Post to Draft:** Receive blog content from the Hub's Blog Writer and create WordPress draft posts automatically. Supports title, body, categories, tags, and featured images. (Starter+ Tier)
 *   **Schema Injector:** Push JSON-LD structured data from the Hub's Schema Generator directly into your pages. Supports per-post and site-wide schemas. (Growth+ Tier)
@@ -24,12 +24,14 @@ All features are subscription-gated via an API key. If your subscription lapses,
 *   **Site Health Monitor:** Collect real-user Core Web Vitals (LCP, CLS, INP, TTFB, FCP) and report them to the Hub for monitoring. Uses a lightweight ~2KB script. (Pro Tier)
 *   **AI Discovery:** Generate an AI-readable business profile (`llms.txt`), inject LocalBusiness schema, and automatically ping IndexNow (Bing/Yandex) when content changes to ensure AI search engines know you exist. (Pro Tier)
 *   **Content Decay Alerts:** Monitor your published posts for freshness and report stale content back to the Hub so you know what needs updating. (Growth+ Tier)
-*   **Form Submission Capture:** Hook into popular form plugins (Contact Form 7, Gravity Forms, WPForms, Elementor) to capture leads, filter spam in real-time, and send clean lead data to your Hub pipeline. (Pro Tier)
+*   **Form Submission Capture:** Hook into popular form plugins (Contact Form 7, Gravity Forms, WPForms, Elementor) to capture leads, filter spam in real-time, keep a bounded local review inbox, and send clean lead data to your Hub pipeline. (Pro Tier)
 *   **Alt Text Generator:** Review Media Library images with missing alt text, generate concise Hub-backed drafts, and save approved changes without leaving WordPress. People and headshots are left for manual review. (Growth+ Tier)
 
 ### Privacy & Data Collection
 
-This plugin collects anonymous Core Web Vitals performance data from your visitors to help you monitor site health. If the Form Submission Capture module is enabled, it processes form submissions in real-time to filter spam and forwards clean leads to your Hub account. It does not store personal data locally.
+This plugin collects anonymous Core Web Vitals performance data from your visitors to help you monitor site health. If Form Submission Capture is enabled, it stores a bounded local inbox of the newest 250 submissions for review and CSV export, filters spam, and forwards clean leads to the connected Hub account. The inbox can include the submitted contact fields, source URL, timestamp, and request IP address. Activity records are also bounded to 250 entries and never include the API key or full submitted form values.
+
+WordPress personal-data export and erasure requests can find and remove exact-email matches from both the local form inbox and activity history. Clean lead copies already forwarded to the connected Hub account must be handled through that account or its operator.
 
 == Installation ==
 
@@ -65,6 +67,26 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.23.1 =
+* Bind browser telemetry to the current connector key and site, and invalidate stale derived tokens.
+* Revalidate privileged Hub requests against the authoritative subscription service.
+* Clear derived telemetry state when the connector key changes or the plugin is deactivated.
+* Repair Content Decay and Leads route ownership while preserving all 1.23.0 features.
+
+= 1.22.0 =
+* Restrict llms.txt and llms-full.txt auto-discovery to canonical published pages and posts.
+* Exclude Elementor Library templates, attachments, non-public post types, noindex content, and thank-you pages.
+* Sort discovered links into Key Pages, Services, Locations, Blog/Resources, and Contact while preserving curated section overrides.
+* Flag Elementor Library URLs and other unsupported content types in AI Discovery validation.
+
+= 1.21.0 =
+* Rebuilt AI Discovery with Auto, Append, and Manual llms.txt editing, curated links, preview, and validation.
+* Generate sectioned markdown links from indexable site content while excluding noindex and thank-you pages.
+* Publish valid AI crawler groups in robots.txt after existing directives.
+* Queue and batch IndexNow submissions, return the key file with HTTP 200, and add a manual all-URLs submit action.
+* Added authenticated Hub REST controls for reading, saving, regenerating, and submitting AI Discovery data.
+* Regenerate physical discovery files and UTF-8 response rules during plugin upgrades.
 
 = 1.20.0 =
 * Add a review-first Alt Text Generator inside WordPress admin.

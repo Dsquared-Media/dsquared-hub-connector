@@ -1,68 +1,82 @@
-name: Build + attach plugin zip on release
-
-# Fires when a tag is pushed. Builds dsquared-hub-connector.zip with the
-# correct folder structure (root = dsquared-hub-connector/) and attaches
-# it to the GitHub release. Without this, users who download "Source
-# code (zip)" get an archive that extracts to a sha-suffixed folder,
-# breaking WordPress's plugin path and auto-deactivating the plugin on
-# every update.
+name: Promote reviewed connector package to draft release
 
 on:
-  push:
-    tags:
-      - 'v*'
-  release:
-    types: [published]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing semantic version tag, for example v1.23.1
+        required: true
+        type: string
+      approved_commit:
+        description: Exact approved 40-character commit SHA
+        required: true
+        type: string
+      approved_sha256:
+        description: SHA-256 of the independently reviewed ZIP
+        required: true
+        type: string
+      candidate_run_id:
+        description: Successful Connector security contract run containing the reviewed candidate
+        required: true
+        type: string
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
-  build-and-attach:
+  promote-reviewed-package:
     runs-on: ubuntu-latest
+    environment: connector-release
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Stage plugin files under dsquared-hub-connector/
-        run: |
-          mkdir -p build/dsquared-hub-connector
-          rsync -a \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='build' \
-            --exclude='*.zip' \
-            --exclude='.DS_Store' \
-            --exclude='node_modules' \
-            --exclude='tests' \
-            ./ build/dsquared-hub-connector/
-
-      - name: Create zip
-        working-directory: build
-        run: zip -rq dsquared-hub-connector.zip dsquared-hub-connector
-
-      - name: Resolve tag
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "name=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Upload as release asset
+      - name: Verify and promote the exact reviewed bytes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          APPROVED_COMMIT: ${{ inputs.approved_commit }}
+          APPROVED_SHA256: ${{ inputs.approved_sha256 }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
         run: |
-          TAG="${{ steps.tag.outputs.name }}"
-          # If a release already exists for this tag, upload (clobbering any
-          # prior asset of the same name). Otherwise create a draft release
-          # against the tag and upload.
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" build/dsquared-hub-connector.zip --clobber
-          else
-            gh release create "$TAG" build/dsquared-hub-connector.zip \
-              --title "$TAG" \
-              --notes "Automated plugin zip build. See CHANGELOG.md for details."
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$APPROVED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$APPROVED_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$CANDIDATE_RUN_ID" =~ ^[0-9]+$ ]]
+
+          TAG_COMMIT="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq '.sha')"
+          test "$TAG_COMMIT" = "$APPROVED_COMMIT"
+
+          RUN_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
+          test "$(jq -r '.head_sha' <<<"$RUN_JSON")" = "$APPROVED_COMMIT"
+          test "$(jq -r '.conclusion' <<<"$RUN_JSON")" = "success"
+          WORKFLOW_ID="$(jq -r '.workflow_id' <<<"$RUN_JSON")"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_ID" --jq '.path')" = ".github/workflows/connector-security.yml"
+
+          ARTIFACT="connector-candidate-$APPROVED_COMMIT"
+          mkdir candidate
+          gh run download "$CANDIDATE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT" --dir candidate
+
+          test -f candidate/dsquared-hub-connector.zip
+          test -f candidate/dsquared-hub-connector.zip.sha256
+          test -f candidate/dsquared-hub-connector.manifest.txt
+          test "$(awk '{print $1}' candidate/dsquared-hub-connector.zip.sha256)" = "$APPROVED_SHA256"
+          test "$(awk '/^Source-Commit:/{print $2}' candidate/dsquared-hub-connector.manifest.txt)" = "$APPROVED_COMMIT"
+          echo "$APPROVED_SHA256  candidate/dsquared-hub-connector.zip" | sha256sum -c -
+
+          VERSION="${TAG#v}"
+          test "$(unzip -p candidate/dsquared-hub-connector.zip dsquared-hub-connector/dsquared-hub-connector.php | sed -n 's/^[[:space:]]*\* Version:[[:space:]]*//p' | head -1)" = "$VERSION"
+          test "$(unzip -p candidate/dsquared-hub-connector.zip dsquared-hub-connector/readme.txt | sed -n 's/^Stable tag:[[:space:]]*//p' | head -1)" = "$VERSION"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to replace or clobber assets." >&2
+            exit 1
           fi
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --verify-tag \
+            --title "$TAG" \
+            --notes "Draft connector release. Approved commit: $APPROVED_COMMIT. Approved ZIP SHA-256: $APPROVED_SHA256. Candidate run: $CANDIDATE_RUN_ID." \
+            candidate/dsquared-hub-connector.zip \
+            candidate/dsquared-hub-connector.zip.sha256 \
+            candidate/dsquared-hub-connector.manifest.txt

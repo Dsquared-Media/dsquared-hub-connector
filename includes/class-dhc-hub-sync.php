@@ -15,6 +15,22 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class DHC_Hub_Sync {
 
+    public static function profile_request_url( $hub_url, $site_url ) {
+        return add_query_arg( 'site_url', $site_url, rtrim( $hub_url, '/' ) . '/api/plugin/ai-discovery-profile' );
+    }
+
+    /** Pure canonical merge used by automatic sync, manual sync, and tests. */
+    public static function merge_profile_data( $hub_profile, $local_profile = array(), $force = false ) {
+        if ( class_exists( 'DHC_AI_Discovery' ) ) {
+            $local_profile = DHC_AI_Discovery::normalize_business_profile( $local_profile );
+            $hub_profile = DHC_AI_Discovery::normalize_business_profile( $hub_profile, $force ? array() : $local_profile );
+        }
+        if ( $force || empty( $local_profile ) ) return $hub_profile;
+        $merged = $local_profile;
+        foreach ( $hub_profile as $key => $value ) if ( ! isset( $merged[ $key ] ) || self::is_empty_value( $merged[ $key ] ) ) $merged[ $key ] = $value;
+        return class_exists( 'DHC_AI_Discovery' ) ? DHC_AI_Discovery::normalize_business_profile( $merged ) : $merged;
+    }
+
     /**
      * Initialize hooks
      */
@@ -44,7 +60,7 @@ class DHC_Hub_Sync {
         $site_url = home_url( '/' );
 
         $response = wp_remote_get(
-            add_query_arg( 'site_url', urlencode( $site_url ), $hub_url . '/api/plugin/ai-discovery-profile' ),
+            self::profile_request_url( $hub_url, $site_url ),
             array(
                 'headers' => array(
                     'Content-Type'  => 'application/json',
@@ -91,35 +107,14 @@ class DHC_Hub_Sync {
             $local_profile = get_option( 'dhc_ai_business_profile', array() );
         }
 
-        if ( $force || empty( $local_profile ) ) {
-            // Full overwrite (or first-time population)
-            $merged = $hub_profile;
-        } else {
-            // Merge: Hub fills in blanks, local values preserved
-            $merged = $local_profile;
-            foreach ( $hub_profile as $key => $value ) {
-                if ( ! isset( $merged[ $key ] ) || self::is_empty_value( $merged[ $key ] ) ) {
-                    $merged[ $key ] = $value;
-                }
-            }
-        }
+        $merged = self::merge_profile_data( $hub_profile, $local_profile, $force );
 
-        // Convert services and service_areas to text format for the admin form
-        if ( ! empty( $merged['services'] ) && is_array( $merged['services'] ) ) {
-            $service_names = array();
-            foreach ( $merged['services'] as $service ) {
-                $service_names[] = is_array( $service ) ? ( $service['name'] ?? '' ) : $service;
-            }
-            $merged['services_text'] = implode( "\n", array_filter( $service_names ) );
+        // One canonical normalizer owns both option names and all legacy mirrors.
+        if ( class_exists( 'DHC_AI_Discovery' ) ) $merged = DHC_AI_Discovery::save_business_profile_data( $merged, $force );
+        else {
+            update_option( 'dhc_business_profile', $merged );
+            update_option( 'dhc_ai_business_profile', $merged );
         }
-
-        if ( ! empty( $merged['service_areas'] ) && is_array( $merged['service_areas'] ) ) {
-            $merged['service_areas_text'] = implode( "\n", array_filter( $merged['service_areas'] ) );
-        }
-
-        // Save to both option names for compatibility
-        update_option( 'dhc_business_profile', $merged );
-        update_option( 'dhc_ai_business_profile', $merged );
 
         // Rewrite the physical llms.txt / llms-full.txt right away so a sync
         // takes effect immediately, without a separate "Save & Generate
@@ -185,15 +180,14 @@ class DHC_Hub_Sync {
      */
     public static function ajax_sync_from_hub() {
         check_ajax_referer( 'dhc_admin_nonce', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( __( 'Unauthorized', 'dsquared-hub-connector' ) );
-        }
+        $permission = self::manual_sync_permission();
+        if ( is_wp_error( $permission ) ) wp_send_json_error( array( 'message' => $permission->get_error_message() ), intval( $permission->get_error_data()['status'] ?? 403 ) );
 
         // A manual "Sync from Hub" means "pull the current Hub profile" — the
         // Hub is the source of truth, so default to overwrite. Without this it
         // merged and kept stale local values, so a resync couldn't fix a
-        // profile that was already wrong. Callers can still pass force=0.
-        $force = isset( $_POST['force'] ) ? ! empty( $_POST['force'] ) : true;
+        // profile that was already wrong. A manual sync is always authoritative.
+        $force = true;
 
         $hub_profile = self::fetch_profile_from_hub();
         if ( is_wp_error( $hub_profile ) ) {
@@ -213,11 +207,18 @@ class DHC_Hub_Sync {
         wp_send_json_success( array(
             'message' => sprintf(
                 /* translators: %d: number of fields populated */
-                __( 'Profile synced from Hub! %d fields populated. Review the data below and click "Save & Generate Files" to apply.', 'dsquared-hub-connector' ),
+                __( 'Profile synced from Hub. %d fields were saved and the discovery files were regenerated.', 'dsquared-hub-connector' ),
                 $populated_count
             ),
             'profile' => $merged,
         ) );
+    }
+
+    /** Manual sync is a gated AI Discovery write, not a generic admin action. */
+    public static function manual_sync_permission() {
+        if ( ! current_user_can( 'manage_options' ) ) return new WP_Error( 'dhc_forbidden', __( 'Unauthorized', 'dsquared-hub-connector' ), array( 'status' => 403 ) );
+        if ( ! DHC_API_Key::is_module_available( 'ai_discovery' ) ) return new WP_Error( 'dhc_ai_discovery_unavailable', __( 'AI Discovery is not available on the current subscription.', 'dsquared-hub-connector' ), array( 'status' => 403 ) );
+        return true;
     }
 
     /**

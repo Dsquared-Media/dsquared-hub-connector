@@ -89,6 +89,7 @@ class DHC_Dashboard {
         // retry on the next page load rather than wait 30 min.
         if ( ! empty( $data['connected'] ) ) {
             set_transient( $cache_key, $data, self::CACHE_TTL );
+            if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $cache_key, self::CACHE_TTL );
         }
         $data['_cache'] = 'miss';
         return $data;

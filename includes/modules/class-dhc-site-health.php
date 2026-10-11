@@ -54,7 +54,7 @@ class DHC_Site_Health {
         // Use dhc_telemetry_token (narrow, public-safe) NOT dhc_api_key.
         // The private connector key must never appear in public HTML because
         // it authenticates privileged Hub and WordPress REST write routes.
-        $telemetry_token = get_option( 'dhc_telemetry_token', '' );
+        $telemetry_token = DHC_Heartbeat::public_telemetry_token();
         wp_localize_script( 'dhc-site-health', 'dhcHealthConfig', array(
             'endpoint'    => rest_url( 'dsquared-hub/v1/health' ),
             'hubEndpoint' => DHC_HUB_API_BASE . '/plugin/cwv-report',

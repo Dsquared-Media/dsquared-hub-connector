@@ -182,7 +182,7 @@ class DHC_Heartbeat {
      * because it also authenticates privileged Hub and WordPress REST write
      * routes (post, schema, seo-meta, posts/content, seo-meta/bulk, media/alt).
      * The telemetry token (dhc_telemetry_token) is a Hub-issued credential
-     * scoped to heartbeat, event/events, and cwv-report only — safe to embed
+     * scoped to event/events and cwv-report only — safe to embed
      * in public JavaScript for beacon/CWV reporting.
      *
      * Called on activation and when the API key is saved, so the public-safe
@@ -197,13 +197,14 @@ class DHC_Heartbeat {
         }
 
         // Skip if a token is already stored — no need to re-provision.
-        $existing = get_option( 'dhc_telemetry_token', '' );
+        $existing = self::public_telemetry_token();
         if ( ! empty( $existing ) ) {
             delete_option( self::TELEMETRY_RETRY_OPTION );
             return true;
         }
 
         $hub_url = self::get_hub_url();
+        $site_url = home_url( '/' );
 
         $response = wp_remote_post( $hub_url . '/api/plugin/telemetry-token', array(
             'body'    => wp_json_encode( array( 'site_url' => home_url( '/' ) ) ),
@@ -224,14 +225,54 @@ class DHC_Heartbeat {
         $code = wp_remote_retrieve_response_code( $response );
         $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
-        if ( 200 === $code && ! empty( $body['telemetry_token'] ) ) {
-            update_option( 'dhc_telemetry_token', sanitize_text_field( $body['telemetry_token'] ) );
+        // A response for an earlier key/site must never restore its public
+        // credential after a settings change or site migration.
+        if ( ! hash_equals( $api_key, (string) get_option( 'dhc_api_key', '' ) ) || $site_url !== home_url( '/' ) ) {
+            return false;
+        }
+        $token = $body['telemetry_token'] ?? '';
+        if ( 200 === $code && is_string( $token ) && preg_match( '/\Adhct_[a-f0-9]{40}\z/', $token ) ) {
+            // Persist provenance in one record. Rendering verifies it again,
+            // so even an option-write race cannot expose an old-site token.
+            update_option( 'dhc_telemetry_binding', array(
+                'token' => $token,
+                'parent_hash' => hash( 'sha256', $api_key ),
+                'site_url' => $site_url,
+            ), false );
+            update_option( 'dhc_telemetry_token', $token );
             delete_option( self::TELEMETRY_RETRY_OPTION );
             return true;
         }
 
         self::schedule_telemetry_retry();
         return false;
+    }
+
+    /** Invalidate derived state for every option write, including WP-CLI. */
+    public static function connector_key_changed() {
+        self::clear_telemetry_state();
+        DHC_API_Key::clear_cache();
+        self::ensure_telemetry_token_scheduled();
+    }
+
+    public static function clear_telemetry_state() {
+        delete_option( 'dhc_telemetry_binding' );
+        delete_option( 'dhc_telemetry_token' );
+        delete_option( self::TELEMETRY_RETRY_OPTION );
+        wp_clear_scheduled_hook( self::TELEMETRY_PROVISION_HOOK );
+    }
+
+    /** Return only a narrow token bound to the currently configured key/site. */
+    public static function public_telemetry_token() {
+        $binding = get_option( 'dhc_telemetry_binding', array() );
+        $key = (string) get_option( 'dhc_api_key', '' );
+        if ( ! is_array( $binding ) || empty( $key ) || ! is_string( $binding['token'] ?? null )
+            || ! preg_match( '/\Adhct_[a-f0-9]{40}\z/', $binding['token'] )
+            || ( $binding['site_url'] ?? '' ) !== home_url( '/' )
+            || ! hash_equals( hash( 'sha256', $key ), (string) ( $binding['parent_hash'] ?? '' ) ) ) {
+            return '';
+        }
+        return $binding['token'];
     }
 
     /**
@@ -243,7 +284,7 @@ class DHC_Heartbeat {
      * @return bool True when no work is needed or an event is already/successfully scheduled.
      */
     public static function ensure_telemetry_token_scheduled( $delay = 5 ) {
-        if ( empty( get_option( 'dhc_api_key', '' ) ) || ! empty( get_option( 'dhc_telemetry_token', '' ) ) ) {
+        if ( empty( get_option( 'dhc_api_key', '' ) ) || '' !== self::public_telemetry_token() ) {
             return true;
         }
 

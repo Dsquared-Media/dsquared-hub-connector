@@ -3,8 +3,8 @@
  * Module 7: Form Submission Capture
  *
  * Hooks into popular WordPress form plugins to intercept submissions,
- * filters out spam, and reports clean leads to the Hub. Does NOT store
- * any form data locally — only observes and reports.
+ * filters out spam, stores a bounded local review inbox, and reports clean
+ * leads to the Hub.
  *
  * Supported form plugins:
  * - Contact Form 7
@@ -21,6 +21,9 @@
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 class DHC_Form_Capture {
+
+    const INBOX_OPTION = 'dhc_form_inbox';
+    const INBOX_LIMIT  = 250;
 
     private static $instance = null;
 
@@ -99,6 +102,9 @@ class DHC_Form_Capture {
 
         // Rate limiting transient cleanup
         add_action( 'init', array( $this, 'init_rate_limiter' ) );
+
+        add_action( 'wp_ajax_dhc_form_toggle_spam', array( __CLASS__, 'ajax_toggle_spam' ) );
+        add_action( 'admin_post_dhc_form_export', array( __CLASS__, 'export_csv' ) );
     }
 
     /* ─── Contact Form 7 ─── */
@@ -335,14 +341,15 @@ class DHC_Form_Capture {
     private function process_lead( $lead ) {
         // Step 1: Rate limit check
         if ( $this->is_rate_limited() ) {
-            $this->log_activity( 'Lead blocked: rate limit exceeded from ' . $this->get_client_ip() );
+			$this->log_activity( 'Form submission blocked by the rate limit.' );
             return;
         }
 
         // Step 2: Run spam filters
         $spam_result = $this->check_spam( $lead );
         if ( $spam_result['is_spam'] ) {
-            $this->log_activity( 'Spam filtered: ' . $spam_result['reason'] . ' (' . ( $lead['email'] ?: 'no email' ) . ')' );
+            $this->store_submission( $lead, true, $spam_result['reason'] );
+			$this->log_activity( 'Form submission filtered as spam: ' . $spam_result['reason'] . '.' );
             $this->increment_counter( 'spam' );
             return;
         }
@@ -360,6 +367,8 @@ class DHC_Form_Capture {
             'site'        => home_url( '/' ),
         );
 
+        $this->store_submission( $lead, false, '' );
+
         // Step 4: Send to Hub (non-blocking)
         $this->send_to_hub( $clean_lead );
 
@@ -367,11 +376,129 @@ class DHC_Form_Capture {
         $this->increment_counter( 'clean' );
 
         // Step 6: Log
-        $this->log_activity(
-            'Lead captured: ' . ( $clean_lead['name'] ?: 'Anonymous' ) .
-            ' via ' . $clean_lead['form_plugin'] .
-            ' (' . $clean_lead['form_name'] . ')'
+		$this->log_activity( 'Form submission captured via ' . $clean_lead['form_plugin'] . ' (' . $clean_lead['form_name'] . ').' );
+
+        do_action( 'dhc_track_event', 'form_submit', array(
+            'form_name'   => $clean_lead['form_name'],
+            'form_plugin' => $clean_lead['form_plugin'],
+            'source_page' => $clean_lead['source_page'],
+        ) );
+    }
+
+    private function store_submission( $lead, $is_spam, $reason ) {
+        $rows = get_option( self::INBOX_OPTION, array() );
+        if ( ! is_array( $rows ) ) $rows = array();
+        $row = array(
+            'id'          => wp_generate_uuid4(),
+            'name'        => sanitize_text_field( $lead['name'] ?? '' ),
+            'email'       => sanitize_email( $lead['email'] ?? '' ),
+            'phone'       => sanitize_text_field( $lead['phone'] ?? '' ),
+            'message'     => sanitize_textarea_field( substr( (string) ( $lead['message'] ?? '' ), 0, 2000 ) ),
+            'form_name'   => sanitize_text_field( $lead['form_name'] ?? '' ),
+            'form_plugin' => sanitize_text_field( $lead['form_plugin'] ?? '' ),
+            'source_url'  => esc_url_raw( $lead['source_url'] ?? '' ),
+            'ip_address'  => sanitize_text_field( $this->get_client_ip() ),
+            'spam'        => (bool) $is_spam,
+            'spam_reason' => sanitize_text_field( $reason ),
+            // Immutable capture-time provenance. The mutable spam review status
+            // must never be used to decide whether a Hub copy may exist.
+            'forwarded_to_hub' => ! $is_spam,
+            'created_at'  => current_time( 'mysql' ),
         );
+        array_unshift( $rows, $row );
+        update_option( self::INBOX_OPTION, array_slice( $rows, 0, self::INBOX_LIMIT ), false );
+    }
+
+    public static function get_submissions() {
+        $rows = get_option( self::INBOX_OPTION, array() );
+        return is_array( $rows ) ? array_values( $rows ) : array();
+    }
+
+    /**
+     * Return local inbox rows whose normalized email exactly matches a
+     * WordPress privacy request.
+     *
+     * @param string $email_address Email address supplied by WordPress.
+     * @return array
+     */
+    public static function get_submissions_for_email( $email_address ) {
+        $email_address = strtolower( sanitize_email( $email_address ) );
+        if ( '' === $email_address ) return array();
+
+        return array_values( array_filter( self::get_submissions(), function ( $row ) use ( $email_address ) {
+            return $email_address === strtolower( sanitize_email( $row['email'] ?? '' ) );
+        } ) );
+    }
+
+    /**
+     * Delete every local inbox row matching an exact normalized email.
+     *
+     * @param string $email_address Email address supplied by WordPress.
+     * @return array Removal summary.
+     */
+    public static function erase_submissions_for_email( $email_address ) {
+        $email_address = strtolower( sanitize_email( $email_address ) );
+        if ( '' === $email_address ) return array( 'removed' => 0, 'forwarded' => false );
+
+        $rows      = self::get_submissions();
+        $kept      = array();
+        $removed   = 0;
+        $forwarded = false;
+
+        foreach ( $rows as $row ) {
+            if ( $email_address === strtolower( sanitize_email( $row['email'] ?? '' ) ) ) {
+                $removed++;
+                // Records created before forwarding provenance was introduced
+                // are treated conservatively so erasure never promises that a
+                // possible Hub copy was removed.
+                if ( ! array_key_exists( 'forwarded_to_hub', $row ) || ! empty( $row['forwarded_to_hub'] ) ) {
+                    $forwarded = true;
+                }
+                continue;
+            }
+            $kept[] = $row;
+        }
+
+        if ( $removed ) update_option( self::INBOX_OPTION, $kept, false );
+        return array( 'removed' => $removed, 'forwarded' => $forwarded );
+    }
+
+    public static function ajax_toggle_spam() {
+        check_ajax_referer( 'dhc_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Forbidden.', 403 );
+        $id = sanitize_key( wp_unslash( $_POST['id'] ?? '' ) );
+        $rows = self::get_submissions();
+        $found = false;
+        foreach ( $rows as &$row ) {
+            if ( ( $row['id'] ?? '' ) === $id ) {
+                $row['spam'] = ! empty( $_POST['spam'] );
+                $row['spam_reason'] = $row['spam'] ? 'Marked manually' : '';
+                $found = true;
+                break;
+            }
+        }
+        unset( $row );
+        if ( ! $found ) wp_send_json_error( 'Submission not found.', 404 );
+        update_option( self::INBOX_OPTION, $rows, false );
+        DHC_Event_Logger::log( 'form_submission_updated', 'form_capture', array( 'id' => $id, 'spam' => ! empty( $_POST['spam'] ) ), 'Form inbox status updated.' );
+        wp_send_json_success( array( 'message' => 'Submission updated.' ) );
+    }
+
+    public static function export_csv() {
+        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Forbidden.', 403 );
+        check_admin_referer( 'dhc_form_export' );
+        nocache_headers();
+        header( 'Content-Type: text/csv; charset=utf-8' );
+        header( 'Content-Disposition: attachment; filename="d2-form-submissions-' . gmdate( 'Y-m-d' ) . '.csv"' );
+        $out = fopen( 'php://output', 'w' );
+        DHC_CSV::write_row( $out, array( 'Date', 'Status', 'Name', 'Email', 'Phone', 'Form', 'Plugin', 'Source', 'IP address', 'Message' ) );
+        $status = sanitize_key( wp_unslash( $_GET['status'] ?? 'all' ) );
+        foreach ( self::get_submissions() as $row ) {
+            if ( 'spam' === $status && empty( $row['spam'] ) ) continue;
+            DHC_CSV::write_row( $out, array( $row['created_at'] ?? '', ! empty( $row['spam'] ) ? 'Spam' : 'Inbox', $row['name'] ?? '', $row['email'] ?? '', $row['phone'] ?? '', $row['form_name'] ?? '', $row['form_plugin'] ?? '', $row['source_url'] ?? '', $row['ip_address'] ?? '', $row['message'] ?? '' ) );
+        }
+        fclose( $out );
+        exit;
     }
 
     /* ─── Spam Filter Chain ─── */
@@ -452,6 +579,7 @@ class DHC_Form_Capture {
 
         if ( $count === false ) {
             set_transient( $key, 1, 300 ); // 5 minute window
+            if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $key, 300 );
             return false;
         }
 
@@ -460,23 +588,19 @@ class DHC_Form_Capture {
         }
 
         set_transient( $key, $count + 1, 300 );
+        if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $key, 300 );
         return false;
     }
 
     private function get_client_ip() {
-        $headers = array(
-            'HTTP_CF_CONNECTING_IP', // Cloudflare
-            'HTTP_X_FORWARDED_FOR',
-            'HTTP_X_REAL_IP',
-            'REMOTE_ADDR',
-        );
-        foreach ( $headers as $header ) {
-            if ( ! empty( $_SERVER[ $header ] ) ) {
-                $ip = explode( ',', $_SERVER[ $header ] );
-                return trim( $ip[0] );
-            }
-        }
-        return '0.0.0.0';
+		$remote=isset($_SERVER['REMOTE_ADDR'])?trim(wp_unslash($_SERVER['REMOTE_ADDR'])):'';
+		if(!filter_var($remote,FILTER_VALIDATE_IP))$remote='0.0.0.0';
+		$trusted=(array)apply_filters('dhc_trusted_proxy_ips',array('127.0.0.1','::1'));
+		if(!in_array($remote,$trusted,true))return $remote;
+		$candidates=array();
+		foreach(array('HTTP_CF_CONNECTING_IP','HTTP_X_REAL_IP','HTTP_X_FORWARDED_FOR')as$header){if(empty($_SERVER[$header]))continue;$values=array_map('trim',explode(',',wp_unslash($_SERVER[$header])));$candidates=array_merge($candidates,array_reverse($values));}
+		foreach($candidates as$ip)if(filter_var($ip,FILTER_VALIDATE_IP)&&!in_array($ip,$trusted,true))return $ip;
+		return $remote;
     }
 
     /* ─── Send to Hub ─── */
@@ -535,11 +659,17 @@ class DHC_Form_Capture {
     /* ─── REST Routes ─── */
 
     public function register_routes() {
-        register_rest_route( 'dsquared-hub/v1', '/leads/stats', array(
+        $definition = array(
             'methods'  => 'GET',
             'callback' => array( $this, 'get_lead_stats' ),
             'permission_callback' => array( $this, 'check_api_key' ),
-        ) );
+        );
+
+        register_rest_route( 'dsquared-hub/v1', '/leads/stats', $definition );
+
+        // Retain the original connector contract while routing it through the
+        // same initialized module instance as the explicit stats endpoint.
+        register_rest_route( 'dsquared-hub/v1', '/leads', $definition );
     }
 
     public function check_api_key( $request ) {
@@ -578,13 +708,7 @@ class DHC_Form_Capture {
     /* ─── Activity Logging ─── */
 
     private function log_activity( $message ) {
-        $log = get_option( 'dhc_activity_log', array() );
-        array_unshift( $log, array(
-            'message' => $message,
-            'module'  => 'form-capture',
-            'time'    => current_time( 'mysql' ),
-        ) );
-        $log = array_slice( $log, 0, 200 );
-        update_option( 'dhc_activity_log', $log );
+		// Never copy a visitor identity or forwarded address into the admin audit log.
+		DHC_Event_Logger::activity( 'form_capture_activity', 'form_capture', $message, 'wordpress', array( 'user'=>'System', 'email'=>'', 'ip'=>'' ) );
     }
 }

@@ -35,6 +35,8 @@ class DHC_Schema {
         add_action( 'admin_notices', array( __CLASS__, 'admin_notice' ) );
         add_filter( 'manage_pages_columns', array( __CLASS__, 'pages_column' ) );
         add_action( 'manage_pages_custom_column', array( __CLASS__, 'pages_column_value' ), 10, 2 );
+        add_action( 'wp_ajax_dhc_schema_suggest', array( __CLASS__, 'ajax_schema_suggest' ) );
+        add_action( 'wp_ajax_dhc_schema_apply_suggestion', array( __CLASS__, 'ajax_schema_apply_suggestion' ) );
     }
 
     /** Parse raw JSON-LD without double encoding it. */
@@ -296,6 +298,39 @@ class DHC_Schema {
 
     public static function render_meta_box( $post ) {
         wp_nonce_field( self::NONCE_ACTION, self::NONCE_NAME );
+		$ai_nonce = wp_create_nonce( 'dhc_schema_ai_' . $post->ID );
+		echo '<div class="dhc-schema-ai" data-post-id="' . (int) $post->ID . '" data-nonce="' . esc_attr( $ai_nonce ) . '" data-supported-types="' . esc_attr( wp_json_encode( self::supported_types() ) ) . '"><p>Defaults to your site-wide Schema setting. Override it for this page only.</p><button type="button" class="button" id="dhc-schema-ai-suggest">Suggest schema with AI</button><span class="description"> Reads this page’s content and recommends a type · uses 1 Hub credit</span><div id="dhc-schema-ai-result" hidden></div></div><hr>';
+		?>
+		<script>
+		(function(){
+			var root=document.querySelector('.dhc-schema-ai');if(!root)return;
+			var button=document.getElementById('dhc-schema-ai-suggest'),result=document.getElementById('dhc-schema-ai-result'),supported=[];
+			try{supported=JSON.parse(root.dataset.supportedTypes||'[]');}catch(e){supported=[];}
+			function post(action,data){var body=new URLSearchParams(Object.assign({action:action,post_id:root.dataset.postId,nonce:root.dataset.nonce},data||{}));return fetch(ajaxurl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body}).then(function(r){return r.json();});}
+			var lastSuggestion=null;
+			function render(s){
+				lastSuggestion=s;result.hidden=false;result.innerHTML='';var secondary=(s.secondary||[]).slice();
+				var h=document.createElement('h3');h.textContent='Schema types (editable)';result.appendChild(h);
+				var types=document.createElement('div');types.className='dhc-schema-ai-types';
+				var primaryLabel=document.createElement('label'),primaryText=document.createElement('strong'),primary=document.createElement('select');primaryLabel.className='dhc-schema-ai-primary';primaryText.textContent='Primary type (primary)';primary.id='dhc-schema-ai-primary';supported.forEach(function(type){var option=document.createElement('option');option.value=type;option.textContent=type;option.selected=type===s.primary;primary.appendChild(option);});primaryLabel.append(primaryText,primary);types.appendChild(primaryLabel);
+				var secondaryWrap=document.createElement('div');secondaryWrap.className='dhc-schema-ai-secondary';var secondaryTitle=document.createElement('strong');secondaryTitle.textContent='Secondary types';var pills=document.createElement('div'),technicalPre=null;
+				function answers(){var out={};result.querySelectorAll('input[data-key]').forEach(function(input){out[input.dataset.key]=input.value.trim();});return out;}
+				function preview(){var out=Object.assign({'@context':'https://schema.org'},s.schema||{}),chosen=[primary.value].concat(secondary.filter(function(type){return type!==primary.value;}));out['@type']=chosen.length===1?chosen[0]:chosen;if(s.page){out.name=s.page.name;out.url=s.page.url;}Object.assign(out,answers());if(s.provider)out.provider=s.provider;return out;}
+				function updatePreview(){if(technicalPre)technicalPre.textContent=JSON.stringify(preview(),null,2);}
+				function drawPills(){pills.innerHTML='';secondary=secondary.filter(function(type,index,list){return type!==primary.value&&list.indexOf(type)===index;});secondary.forEach(function(type){var pill=document.createElement('button');pill.type='button';pill.className='button dhc-schema-type-pill';pill.textContent=type+' ×';pill.setAttribute('aria-label','Remove secondary type '+type);pill.addEventListener('click',function(){secondary=secondary.filter(function(value){return value!==type;});drawPills();updatePreview();});pills.appendChild(pill);});if(!secondary.length){var empty=document.createElement('span');empty.className='description';empty.textContent='None';pills.appendChild(empty);}updatePreview();}
+				drawPills();primary.addEventListener('change',function(){drawPills();updatePreview();});secondaryWrap.append(secondaryTitle,pills);types.appendChild(secondaryWrap);result.appendChild(types);
+				var grid=document.createElement('div');grid.className='dhc-schema-ai-grid';var left=document.createElement('div');left.innerHTML='<h4>What it found</h4>';(s.signals||[]).forEach(function(x){var p=document.createElement('p');p.textContent=(x.ok?'✓ ':'– ')+(x.text||'');left.appendChild(p);});var right=document.createElement('div');right.innerHTML='<h4>Answer a couple of quick questions</h4>';
+				var apply=document.createElement('button');apply.type='button';apply.className='button button-primary';apply.textContent='Looks good — apply this';
+				(s.questions||[]).forEach(function(q){var label=document.createElement('label');label.className='dhc-schema-ai-question';var span=document.createElement('strong');span.textContent=q.question||q.key;var input=document.createElement('input');input.type='text';input.value=q.answer||'';input.dataset.key=q.key;var warn=document.createElement('small');warn.textContent='This one’s needed — leaving it blank breaks the schema';warn.hidden=true;input.addEventListener('input',function(){warn.hidden=!!input.value.trim();apply.disabled=Array.from(result.querySelectorAll("input[data-key]")).some(function(i){return !i.value.trim();});updatePreview();});label.append(span,input,warn);right.appendChild(label);});
+				right.insertAdjacentHTML('beforeend','<p class="description">Business identity fills in automatically from your site-wide Business Profile. <a href="admin.php?page=dsquared-hub-schema">Edit site-wide defaults →</a></p>');grid.append(left,right);result.appendChild(grid);
+				var technical=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Show technical schema';technicalPre=document.createElement('pre');technicalPre.className='dhc-schema-ai-preview';technical.append(summary,technicalPre);result.appendChild(technical);updatePreview();
+				apply.disabled=(s.questions||[]).some(function(q){return !String(q.answer||'').trim();});apply.addEventListener('click',function(){apply.disabled=true;post('dhc_schema_apply_suggestion',{answers:JSON.stringify(answers()),primary:primary.value,secondary:JSON.stringify(secondary)}).then(function(r){if(!r.success)throw new Error((r.data&&r.data.message)||r.data||'Apply failed');result.innerHTML='';var notice=document.createElement('div');notice.className='notice notice-success inline';var message=document.createElement('p');message.innerHTML='<strong>Applied: '+String(r.data.types||primary.value).replace(/[<>&]/g,'')+'</strong>';var edit=document.createElement('button');edit.type='button';edit.className='button';edit.textContent='Edit again';edit.addEventListener('click',function(){render(lastSuggestion);});notice.append(message,edit);result.appendChild(notice);}).catch(function(e){alert(e.message);apply.disabled=false;});});
+				var dismiss=document.createElement('button');dismiss.type='button';dismiss.className='button';dismiss.textContent='Dismiss';dismiss.style.marginLeft='8px';dismiss.addEventListener('click',function(){result.hidden=true;});result.append(apply,dismiss);
+			}
+			button.addEventListener('click',function(){if(!confirm('This reads the saved page content and uses 1 Hub credit. Continue?'))return;button.disabled=true;button.textContent='Reading page…';post('dhc_schema_suggest').then(function(r){if(!r.success)throw new Error((r.data&&r.data.message)||r.data||'Suggestion failed');render(r.data);}).catch(function(e){alert(e.message);}).finally(function(){button.disabled=false;button.textContent='Suggest schema with AI';});});
+		})();
+		</script>
+		<?php
         $raw = self::canonical_value( $post->ID );
         $checked = self::validate_json( $raw );
         $stored_guided = get_post_meta( $post->ID, self::GUIDED_META_KEY, true );
@@ -420,6 +455,82 @@ DHC_EDITOR_ASSETS;
         if ( $error ) echo '<div class="notice notice-error"><p><strong>Schema (JSON-LD) was saved with a validation issue:</strong> ' . esc_html( $error ) . ' Invalid JSON-LD will not be printed on the public page.</p></div>';
     }
 
+    /** Request a one-credit page-specific suggestion through the site-bound Hub connection. */
+	private static function schema_question_key( $key ) {
+		$key = is_scalar( $key ) ? (string) $key : '';
+		return in_array( $key, array( 'serviceType', 'areaServed', 'headline', 'description' ), true ) ? $key : '';
+	}
+
+	private static function trusted_business_provider() {
+		$profile = get_option( 'dhc_business_profile', array() );
+		if ( class_exists( 'DHC_AI_Discovery' ) ) $profile = DHC_AI_Discovery::normalize_business_profile( $profile );
+		if ( ! is_array( $profile ) || empty( $profile['business_name'] ) ) return null;
+		$type = class_exists( 'DHC_AI_Discovery' ) ? DHC_AI_Discovery::provider_schema_type_for_profile( $profile ) : 'Organization';
+		$provider = array( '@type' => $type, 'name' => sanitize_text_field( $profile['business_name'] ), 'url' => esc_url_raw( ! empty( $profile['website_url'] ) ? $profile['website_url'] : home_url( '/' ) ) );
+		if ( ! empty( $profile['address'] ) ) $provider['address'] = array(
+			'@type' => 'PostalAddress',
+			'streetAddress' => sanitize_text_field( $profile['street'] ?? $profile['address'] ),
+			'addressLocality' => sanitize_text_field( $profile['city'] ?? '' ),
+			'addressRegion' => sanitize_text_field( $profile['state'] ?? '' ),
+			'postalCode' => sanitize_text_field( $profile['zip'] ?? '' ),
+			'addressCountry' => sanitize_text_field( $profile['country'] ?? 'US' ),
+		);
+		return $provider;
+	}
+
+    public static function ajax_schema_suggest() {
+        $post_id = absint( $_POST['post_id'] ?? 0 );
+        check_ajax_referer( 'dhc_schema_ai_' . $post_id, 'nonce' );
+        if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) || ! current_user_can( 'manage_options' ) ) wp_send_json_error( array( 'message' => 'Permission denied.' ), 403 );
+        if ( ! DHC_API_Key::is_module_available( 'schema' ) ) wp_send_json_error( array( 'message' => 'Schema suggestions are unavailable on this subscription.' ), 403 );
+        $post = get_post( $post_id );
+        if ( ! $post ) wp_send_json_error( array( 'message' => 'Page not found.' ), 404 );
+        $api_key = get_option( 'dhc_api_key', '' );
+        $response = wp_remote_post( DHC_HUB_API_BASE . '/plugin/schema/suggest', array(
+            'timeout' => 45,
+            'headers' => array( 'X-DHC-API-Key' => $api_key, 'X-DHC-Site-Url' => home_url( '/' ), 'Content-Type' => 'application/json', 'Accept' => 'application/json' ),
+            'body' => wp_json_encode( array( 'site_url' => home_url( '/' ), 'post_id' => $post_id, 'url' => get_permalink( $post_id ), 'title' => get_the_title( $post ), 'content' => wp_strip_all_tags( strip_shortcodes( $post->post_content ) ), 'excerpt' => wp_strip_all_tags( $post->post_excerpt ), 'credit_cost' => 1 ) ),
+        ) );
+        if ( is_wp_error( $response ) ) wp_send_json_error( array( 'message' => 'The Hub could not be reached: ' . $response->get_error_message() ), 502 );
+        $code = wp_remote_retrieve_response_code( $response ); $body = json_decode( wp_remote_retrieve_body( $response ), true );
+        if ( $code < 200 || $code >= 300 || ! is_array( $body ) ) wp_send_json_error( array( 'message' => is_array( $body ) ? ( $body['error'] ?? 'The Hub could not create a schema suggestion.' ) : 'The Hub returned an invalid schema response.' ), $code ?: 502 );
+        $suggestion = isset( $body['suggestion'] ) && is_array( $body['suggestion'] ) ? $body['suggestion'] : $body;
+        $allowed = self::supported_types(); $primary = sanitize_text_field( $suggestion['primary'] ?? '' );
+        if ( ! in_array( $primary, $allowed, true ) ) wp_send_json_error( array( 'message' => 'The suggested primary type is not supported by this connector.' ), 502 );
+        $safe_schema = array( '@context' => 'https://schema.org' ); foreach ( array( 'serviceType', 'areaServed', 'headline', 'description' ) as $field ) if ( isset( $suggestion['schema'][ $field ] ) && is_scalar( $suggestion['schema'][ $field ] ) ) $safe_schema[ $field ] = sanitize_text_field( $suggestion['schema'][ $field ] );
+        $clean = array( 'primary' => $primary, 'secondary' => array_values( array_intersect( $allowed, array_map( 'sanitize_text_field', (array) ( $suggestion['secondary'] ?? array() ) ) ) ), 'signals' => array(), 'questions' => array(), 'schema' => $safe_schema, 'page' => array( 'name' => get_the_title( $post_id ), 'url' => get_permalink( $post_id ) ), 'provider' => self::trusted_business_provider() );
+        foreach ( (array) ( $suggestion['signals'] ?? array() ) as $signal ) if ( is_array( $signal ) ) $clean['signals'][] = array( 'ok' => ! empty( $signal['ok'] ), 'text' => sanitize_text_field( $signal['text'] ?? '' ) );
+		foreach ( (array) ( $suggestion['questions'] ?? array() ) as $question ) {
+			if ( ! is_array( $question ) || empty( $question['key'] ) ) continue;
+			$key = self::schema_question_key( $question['key'] );
+			if ( '' === $key ) wp_send_json_error( array( 'message' => 'The Hub asked for a protected business identity field. Update the site-wide profile instead.' ), 502 );
+			$clean['questions'][] = array( 'key' => $key, 'question' => sanitize_text_field( $question['question'] ?? $key ), 'answer' => sanitize_text_field( $question['answer'] ?? '' ) );
+		}
+        $suggestion_key = 'dhc_schema_suggestion_' . get_current_user_id() . '_' . $post_id;
+        set_transient( $suggestion_key, $clean, 30 * MINUTE_IN_SECONDS );
+        if ( function_exists( 'dhc_register_dynamic_transient' ) ) dhc_register_dynamic_transient( $suggestion_key, 30 * MINUTE_IN_SECONDS );
+        wp_send_json_success( $clean );
+    }
+
+    /** Apply only the stored server-side suggestion after required answers pass validation. */
+    public static function ajax_schema_apply_suggestion() {
+        $post_id = absint( $_POST['post_id'] ?? 0 );
+        check_ajax_referer( 'dhc_schema_ai_' . $post_id, 'nonce' );
+        if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) || ! current_user_can( 'manage_options' ) ) wp_send_json_error( array( 'message' => 'Permission denied.' ), 403 );
+        $suggestion = get_transient( 'dhc_schema_suggestion_' . get_current_user_id() . '_' . $post_id );
+        if ( ! is_array( $suggestion ) ) wp_send_json_error( array( 'message' => 'This suggestion expired. Request a new one.' ), 409 );
+		$answers = json_decode( wp_unslash( $_POST['answers'] ?? '{}' ), true ); if ( ! is_array( $answers ) ) $answers = array();
+		$allowed=self::supported_types();$primary=sanitize_text_field(wp_unslash($_POST['primary']??$suggestion['primary']));if(!in_array($primary,$allowed,true))wp_send_json_error(array('message'=>'Choose a supported primary schema type.'),400);
+		$secondary=json_decode(wp_unslash($_POST['secondary']??'[]'),true);if(!is_array($secondary))$secondary=array();$secondary=array_values(array_unique(array_diff(array_intersect($allowed,array_map('sanitize_text_field',$secondary)),array($primary))));
+		$schema = array_merge( array( '@context' => 'https://schema.org', 'name' => get_the_title( $post_id ), 'url' => get_permalink( $post_id ) ), is_array( $suggestion['schema'] ?? null ) ? $suggestion['schema'] : array() );
+		$chosen_types=array_merge(array($primary),$secondary);if(isset($schema['@graph'])&&is_array($schema['@graph'])&&!empty($schema['@graph'][0])&&is_array($schema['@graph'][0]))$schema['@graph'][0]['@type']=1===count($chosen_types)?$primary:$chosen_types;else$schema['@type']=1===count($chosen_types)?$primary:$chosen_types;
+        foreach ( $suggestion['questions'] as $question ) { $key = $question['key']; $value = sanitize_text_field( $answers[ $key ] ?? '' ); if ( '' === trim( $value ) ) wp_send_json_error( array( 'message' => 'Answer every required question before applying the schema.' ), 400 ); $schema[ $key ] = $value; }
+        $provider = self::trusted_business_provider(); if ( $provider ) $schema['provider'] = $provider;
+        self::write_schema( $post_id, self::schema_json( $schema ), 'ai', null, 'raw' );
+		DHC_Event_Logger::schema( 'schema_ai_applied', array( 'post_id' => $post_id, 'primary' => $primary, 'secondary' => $secondary ), 'Applied AI schema suggestion to “' . get_the_title( $post_id ) . '”.' );
+		wp_send_json_success( array( 'types' => implode( ' + ', $chosen_types ) ) );
+    }
+
     public static function pages_column( $columns ) {
         $columns['dhc_schema'] = 'Schema';
         return $columns;
@@ -467,16 +578,6 @@ DHC_EDITOR_ASSETS;
      * Log schema actions
      */
     private static function log_action( $action, $post_id, $schema_type ) {
-        $log = get_option( 'dhc_activity_log', array() );
-        if ( count( $log ) >= 50 ) {
-            $log = array_slice( $log, -49 );
-        }
-        $log[] = array(
-            'action'      => $action,
-            'post_id'     => $post_id,
-            'schema_type' => $schema_type,
-            'time'        => current_time( 'mysql' ),
-        );
-        update_option( 'dhc_activity_log', $log );
+		DHC_Event_Logger::activity( $action, 'schema', 'Updated ' . sanitize_text_field( $schema_type ) . ' schema on post ' . absint( $post_id ) . '.', 'hub' );
     }
 }

@@ -301,17 +301,7 @@ class DHC_SEO_Meta {
      * Log SEO meta actions
      */
     private static function log_action( $post_id, $synced_to ) {
-        $log = get_option( 'dhc_activity_log', array() );
-        if ( count( $log ) >= 50 ) {
-            $log = array_slice( $log, -49 );
-        }
-        $log[] = array(
-            'action'    => 'seo_meta_sync',
-            'post_id'   => $post_id,
-            'synced_to' => $synced_to ?: 'native',
-            'time'      => current_time( 'mysql' ),
-        );
-        update_option( 'dhc_activity_log', $log );
+		DHC_Event_Logger::activity( 'seo_meta_sync', 'seo_meta', 'Updated SEO metadata for post ' . absint( $post_id ) . ' (' . sanitize_text_field( $synced_to ?: 'native' ) . ').', 'hub' );
     }
 
     /**

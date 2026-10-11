@@ -36,7 +36,7 @@ class DHC_Alt_Text_Generator {
         $subscription = DHC_API_Key::validate();
         $connected    = ! empty( $subscription['valid'] );
         ?>
-        <div class="dhc-wrap dhc-alt-wrap" id="dhc-alt-app">
+        <div class="dhc-wrap dhc-alt-wrap dhc-v2" id="dhc-alt-app">
             <div class="dhc-header dhc-alt-header">
                 <div class="dhc-header-left">
                     <div class="dhc-logo">
@@ -70,8 +70,9 @@ class DHC_Alt_Text_Generator {
 
             <div class="dhc-alt-summary" aria-label="<?php esc_attr_e( 'Alt text summary', 'dsquared-hub-connector' ); ?>">
                 <div class="dhc-alt-stat"><span id="dhc-alt-missing">—</span><small><?php esc_html_e( 'Missing alt text', 'dsquared-hub-connector' ); ?></small></div>
+                <div class="dhc-alt-stat"><span id="dhc-alt-svg">—</span><small><?php esc_html_e( 'SVGs (manual only)', 'dsquared-hub-connector' ); ?></small></div>
                 <div class="dhc-alt-stat"><span id="dhc-alt-selected">0</span><small><?php esc_html_e( 'Selected', 'dsquared-hub-connector' ); ?></small></div>
-                <div class="dhc-alt-stat"><span id="dhc-alt-cost">0</span><small><?php esc_html_e( 'Maximum credits', 'dsquared-hub-connector' ); ?></small></div>
+                <div class="dhc-alt-stat"><span id="dhc-alt-cost">—</span><small><?php esc_html_e( 'Credits used', 'dsquared-hub-connector' ); ?></small></div>
             </div>
 
             <div class="dhc-card dhc-alt-toolbar-card">
@@ -79,13 +80,15 @@ class DHC_Alt_Text_Generator {
                     <div class="dhc-alt-segmented" role="group" aria-label="<?php esc_attr_e( 'Media filter', 'dsquared-hub-connector' ); ?>">
                         <button type="button" class="dhc-alt-filter active" data-filter="missing" aria-pressed="true"><?php esc_html_e( 'Missing alt text', 'dsquared-hub-connector' ); ?></button>
                         <button type="button" class="dhc-alt-filter" data-filter="all" aria-pressed="false"><?php esc_html_e( 'All images', 'dsquared-hub-connector' ); ?></button>
+                        <button type="button" class="dhc-alt-filter" data-filter="svg" aria-pressed="false"><?php esc_html_e( 'SVGs (manual review)', 'dsquared-hub-connector' ); ?></button>
                     </div>
                     <label class="dhc-alt-search">
                         <span class="screen-reader-text"><?php esc_html_e( 'Search Media Library', 'dsquared-hub-connector' ); ?></span>
                         <span class="dashicons dashicons-search" aria-hidden="true"></span>
                         <input type="search" id="dhc-alt-search" placeholder="<?php esc_attr_e( 'Search filenames or titles', 'dsquared-hub-connector' ); ?>">
                     </label>
-                    <button type="button" class="dhc-btn dhc-btn-outline" id="dhc-alt-select-visible"><?php esc_html_e( 'Select visible', 'dsquared-hub-connector' ); ?></button>
+                    <button type="button" class="dhc-btn dhc-btn-outline" id="dhc-alt-select-visible"><?php esc_html_e( 'Select all visible', 'dsquared-hub-connector' ); ?></button>
+                    <button type="button" class="dhc-btn dhc-btn-outline" id="dhc-alt-select-none"><?php esc_html_e( 'Select none', 'dsquared-hub-connector' ); ?></button>
                 </div>
             </div>
 
@@ -101,7 +104,7 @@ class DHC_Alt_Text_Generator {
                 </div>
                 <div class="dhc-alt-action-buttons">
                     <button type="button" class="dhc-btn dhc-btn-outline" id="dhc-alt-clear" disabled><?php esc_html_e( 'Clear', 'dsquared-hub-connector' ); ?></button>
-                    <button type="button" class="dhc-btn dhc-btn-primary" id="dhc-alt-generate" disabled><?php esc_html_e( 'Generate drafts', 'dsquared-hub-connector' ); ?></button>
+                    <button type="button" class="dhc-btn dhc-btn-outline" id="dhc-alt-generate" disabled><?php esc_html_e( 'Generate drafts', 'dsquared-hub-connector' ); ?></button>
                     <button type="button" class="dhc-btn dhc-btn-primary" id="dhc-alt-save" disabled><?php esc_html_e( 'Save reviewed changes', 'dsquared-hub-connector' ); ?></button>
                 </div>
             </div>
@@ -122,7 +125,8 @@ class DHC_Alt_Text_Generator {
         self::authorize_ajax();
 
         $page   = max( 1, absint( isset( $_POST['page'] ) ? $_POST['page'] : 1 ) );
-        $filter = isset( $_POST['filter'] ) && 'all' === sanitize_key( wp_unslash( $_POST['filter'] ) ) ? 'all' : 'missing';
+        $filter = isset( $_POST['filter'] ) ? sanitize_key( wp_unslash( $_POST['filter'] ) ) : 'missing';
+        if ( ! in_array( $filter, array( 'missing', 'all', 'svg' ), true ) ) $filter = 'missing';
         $search = isset( $_POST['search'] ) ? sanitize_text_field( wp_unslash( $_POST['search'] ) ) : '';
         $args   = array(
             'post_type'              => 'attachment',
@@ -136,6 +140,9 @@ class DHC_Alt_Text_Generator {
             'no_found_rows'          => false,
             'update_post_term_cache' => false,
         );
+        if ( 'svg' === $filter ) {
+            $args['post_mime_type'] = 'image/svg+xml';
+        }
         if ( 'missing' === $filter ) {
             $args['meta_query'] = array(
                 'relation' => 'OR',
@@ -150,6 +157,7 @@ class DHC_Alt_Text_Generator {
             if ( ! $url ) {
                 continue;
             }
+            $mime = (string) get_post_mime_type( $attachment->ID );
             $images[] = array(
                 'id'        => (int) $attachment->ID,
                 'url'       => esc_url_raw( $url ),
@@ -157,6 +165,7 @@ class DHC_Alt_Text_Generator {
                 'filename'  => sanitize_file_name( wp_basename( wp_parse_url( $url, PHP_URL_PATH ) ) ),
                 'title'     => sanitize_text_field( get_the_title( $attachment ) ),
                 'alt_text'  => sanitize_text_field( get_post_meta( $attachment->ID, '_wp_attachment_image_alt', true ) ),
+                'is_svg'    => 'image/svg+xml' === $mime,
             );
         }
 
@@ -166,6 +175,7 @@ class DHC_Alt_Text_Generator {
             'total_pages'   => (int) $query->max_num_pages,
             'filtered_total'=> (int) $query->found_posts,
             'missing_total' => self::missing_image_count(),
+            'svg_total'     => self::svg_image_count(),
             'quote'         => array( 'available' => false, 'max_batch' => self::MAX_BATCH ),
         ) );
     }
@@ -184,6 +194,12 @@ class DHC_Alt_Text_Generator {
         return (int) $wpdb->get_var( $sql ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- fixed table names and literals only.
     }
 
+    /** SVGs are always shown as manual-only and never sent to the Hub. */
+    private static function svg_image_count() {
+        $counts = wp_count_attachments( 'image/svg+xml' );
+        return isset( $counts->inherit ) ? (int) $counts->inherit : 0;
+    }
+
     /** Resolve Media Library IDs to canonical attachment URLs. */
     private static function selected_images() {
         $raw = isset( $_POST['images'] ) ? json_decode( wp_unslash( $_POST['images'] ), true ) : array();
@@ -197,7 +213,7 @@ class DHC_Alt_Text_Generator {
         $seen   = array();
         foreach ( $raw as $item ) {
             $id = isset( $item['media_id'] ) ? absint( $item['media_id'] ) : 0;
-            if ( ! $id || isset( $seen[ $id ] ) || 'attachment' !== get_post_type( $id ) || 0 !== strpos( (string) get_post_mime_type( $id ), 'image/' ) ) {
+            if ( ! $id || isset( $seen[ $id ] ) || 'attachment' !== get_post_type( $id ) || 0 !== strpos( (string) get_post_mime_type( $id ), 'image/' ) || 'image/svg+xml' === get_post_mime_type( $id ) ) {
                 return new WP_Error( 'invalid_media', 'One selected Media Library item is invalid.' );
             }
             $url = wp_get_attachment_url( $id );

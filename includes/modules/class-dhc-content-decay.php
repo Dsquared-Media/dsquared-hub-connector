@@ -324,14 +324,7 @@ class DHC_Content_Decay {
     /* ─── Activity Logging ─── */
 
     private function log_activity( $message ) {
-        $log = get_option( 'dhc_activity_log', array() );
-        array_unshift( $log, array(
-            'message' => $message,
-            'module'  => 'content-decay',
-            'time'    => current_time( 'mysql' ),
-        ) );
-        $log = array_slice( $log, 0, 200 );
-        update_option( 'dhc_activity_log', $log );
+		DHC_Event_Logger::activity( 'content_decay_scan', 'content_decay', $message, 'wordpress', array( 'user'=>'System', 'email'=>'', 'ip'=>'' ) );
     }
 
     /* ─── Cleanup on deactivation ─── */

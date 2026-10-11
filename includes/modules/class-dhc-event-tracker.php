@@ -49,8 +49,7 @@ class DHC_Event_Tracker {
 	}
 
 	public static function init() {
-		// Register the admin sub-page (hooked through DHC_Admin's menu loader).
-		add_action( 'admin_menu', array( __CLASS__, 'register_menu' ), 20 );
+		// DHC_Admin owns the single ordered submenu registration in 1.23.
 
 		// Receive events from the PHP action hook (other plugins / themes).
 		add_action( 'dhc_track_event', array( __CLASS__, 'php_hook_event' ), 10, 2 );
@@ -70,6 +69,19 @@ class DHC_Event_Tracker {
 		return array_replace_recursive( self::defaults(), $cfg );
 	}
 
+	/** Build a unique custom-event table; the last row for a normalized name wins. */
+	private static function normalize_custom_events( $names, $selectors, $triggers ) {
+		$by_name = array();
+		$names = (array) $names; $selectors = (array) $selectors; $triggers = (array) $triggers;
+		for ( $i = 0; $i < min( count( $names ), count( $selectors ) ); $i++ ) {
+			$name = sanitize_key( trim( (string) $names[ $i ] ) ); $selector = sanitize_text_field( trim( (string) $selectors[ $i ] ) );
+			if ( '' === $name || '' === $selector ) continue;
+			$trigger = sanitize_key( $triggers[ $i ] ?? 'click' ); if ( ! in_array( $trigger, array( 'click', 'view', 'hover' ), true ) ) $trigger = 'click';
+			$by_name[ $name ] = array( 'name' => $name, 'selector' => $selector, 'trigger' => $trigger );
+		}
+		return array_values( $by_name );
+	}
+
 	public static function is_enabled() {
 		$c = self::get_config();
 		return ! empty( $c['enabled'] );
@@ -82,18 +94,22 @@ class DHC_Event_Tracker {
 	 * analytics on the next user page view.
 	 */
 	public static function php_hook_event( $name, $params = array() ) {
-		$name = sanitize_key( (string) $name );
+		$name = substr( sanitize_key( (string) $name ), 0, 64 );
 		if ( empty( $name ) ) return;
 		$queue = get_option( 'dhc_track_queue', array() );
 		if ( ! is_array( $queue ) ) $queue = array();
-		$queue[] = array(
-			'name'       => $name,
-			'params'     => is_array( $params ) ? $params : array(),
-			'enqueued_at' => current_time( 'mysql' ),
-		);
-		// Cap the queue so a misbehaving plugin can't explode options.
-		if ( count( $queue ) > 50 ) $queue = array_slice( $queue, -50 );
-		update_option( 'dhc_track_queue', $queue, false );
+		$counts = array();
+		foreach ( $queue as $row ) {
+			$queued_name = substr( sanitize_key( $row['name'] ?? '' ), 0, 64 );
+			if ( '' === $queued_name ) continue;
+			$counts[ $queued_name ] = min( 10000, ( $counts[ $queued_name ] ?? 0 ) + max( 1, absint( $row['count'] ?? 1 ) ) );
+		}
+		$counts[ $name ] = min( 10000, ( $counts[ $name ] ?? 0 ) + 1 );
+		$aggregate = array();
+		foreach ( array_slice( $counts, -50, null, true ) as $event_name => $count ) $aggregate[] = array( 'name' => $event_name, 'count' => $count );
+		// Never persist event params here. They may contain contact details,
+		// URLs or element text and are not part of Hub telemetry.
+		update_option( 'dhc_track_queue', $aggregate, false );
 	}
 
 	public static function register_menu() {
@@ -122,15 +138,10 @@ class DHC_Event_Tracker {
 			: $cfg['cta_selectors'];
 
 		// Custom events — parallel arrays from the form.
-		$cfg['custom'] = array();
 		$names      = isset( $_POST['custom_name'] )     ? (array) wp_unslash( $_POST['custom_name'] )     : array();
 		$selectors  = isset( $_POST['custom_selector'] ) ? (array) wp_unslash( $_POST['custom_selector'] ) : array();
-		for ( $i = 0; $i < min( count( $names ), count( $selectors ) ); $i++ ) {
-			$name = sanitize_key( trim( (string) $names[ $i ] ) );
-			$sel  = sanitize_text_field( trim( (string) $selectors[ $i ] ) );
-			if ( $name === '' || $sel === '' ) continue;
-			$cfg['custom'][] = array( 'name' => $name, 'selector' => $sel );
-		}
+		$triggers   = isset( $_POST['custom_trigger'] )  ? (array) wp_unslash( $_POST['custom_trigger'] )  : array();
+		$cfg['custom'] = self::normalize_custom_events( $names, $selectors, $triggers );
 
 		update_option( self::OPT, $cfg, false );
 
@@ -139,150 +150,42 @@ class DHC_Event_Tracker {
 	}
 
 	public static function render_admin_page() {
+		if ( ! current_user_can( 'manage_options' ) ) return;
 		$cfg = self::get_config();
 		$presets = array(
-			'form_submit'   => array( 'Form submissions',        'Auto-detects Contact Form 7, Gravity Forms, WPForms, Elementor Forms + any generic <form> submit.' ),
-			'phone_click'   => array( 'Phone clicks',            'Fires on every <a href="tel:…"> click. Pushes the phone number as a param.' ),
-			'email_click'   => array( 'Email clicks',            'Fires on every <a href="mailto:…"> click.' ),
-			'outbound'      => array( 'Outbound link clicks',    'Fires on any link whose hostname differs from yours.' ),
-			'scroll_depth'  => array( 'Scroll depth milestones', 'Fires once per page load at 25 / 50 / 75 / 100%.' ),
-			'video_play'    => array( 'Video play / complete',   'Detects YouTube + Vimeo embeds. Fires on first play and on complete.' ),
-			'cta_click'     => array( 'CTA button clicks',       'Fires on clicks matching the CTA selectors you configure below.' ),
-			'file_download' => array( 'File downloads',          'Fires on links ending in .pdf / .doc(x) / .xls(x) / .zip / .csv / .txt / .ppt(x).' ),
+			'form_submit'   => array( 'Form submissions', 'Auto-detects Contact Form 7, Gravity Forms, WPForms, Elementor Forms and generic forms.' ),
+			'phone_click'   => array( 'Phone clicks', 'Tracks every tel: link click.' ),
+			'email_click'   => array( 'Email clicks', 'Tracks every mailto: link click.' ),
+			'outbound'      => array( 'Outbound link clicks', 'Tracks links that leave this website.' ),
+			'scroll_depth'  => array( 'Scroll depth milestones', 'Tracks 25, 50, 75 and 100 percent depth.' ),
+			'video_play'    => array( 'Video play / complete', 'Tracks supported YouTube and Vimeo embeds.' ),
+			'cta_click'     => array( 'CTA button clicks', 'Tracks the CTA selectors configured below.' ),
+			'file_download' => array( 'File downloads', 'Tracks PDF, document, spreadsheet, ZIP and presentation downloads.' ),
 		);
 		?>
-		<div class="wrap dhc-wrap">
-			<div class="dhc-header">
-				<div class="dhc-header-left">
-					<div class="dhc-logo"><div class="dhc-logo-icon"><span class="dashicons dashicons-chart-line" style="color:#EC4899;font-size:22px;display:flex;align-items:center;justify-content:center;height:100%;"></span></div></div>
-					<div>
-						<h1 class="dhc-title">Event Tracking</h1>
-						<div class="dhc-version">Skip GTM — turn on common events with a checkbox.</div>
-					</div>
-				</div>
-			</div>
-
-			<?php if ( isset( $_GET['saved'] ) ) : ?>
-				<div class="notice notice-success is-dismissible"><p>Event tracking settings saved.</p></div>
-			<?php endif; ?>
-
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-				<?php wp_nonce_field( 'dhc_event_tracker' ); ?>
-				<input type="hidden" name="action" value="dhc_event_tracker_save">
-
-				<div class="dhc-card">
-					<div class="dhc-card-header"><h2>Master switch</h2></div>
-					<div class="dhc-card-body" style="display:flex;flex-direction:column;gap:14px;">
-						<label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
-							<input type="checkbox" name="enabled" value="1" style="margin-top:2px;" <?php checked( ! empty( $cfg['enabled'] ) ); ?>>
-							<div>
-								<strong>Enable event tracking</strong>
-								<div style="font-size:13px;color:#64748b;margin-top:2px;">Injects a tiny listener script on every front-end page. Events fire to <code>window.dataLayer</code> (GTM) and directly to <code>gtag()</code> (GA4) — whichever you have set up.</div>
-							</div>
-						</label>
-						<label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
-							<input type="checkbox" name="send_to_hub" value="1" style="margin-top:2px;" <?php checked( ! empty( $cfg['send_to_hub'] ) ); ?>>
-							<div>
-								<strong>Send event counts to the Dsquared Hub</strong>
-								<div style="font-size:13px;color:#64748b;margin-top:2px;">Beacons captured events to <code>hub.dsquaredmedia.net</code> so your agency can see "X form submits this week" across every site in one rollup. No personal data — just event names + counts. Batched and flushed via <code>navigator.sendBeacon</code> so it never blocks page loads.</div>
-							</div>
-						</label>
-					</div>
-				</div>
-
-				<div class="dhc-card">
-					<div class="dhc-card-header">
-						<h2>Preset events</h2>
-						<p class="dhc-card-desc">Toggle only what this site actually cares about — each preset is independent.</p>
-					</div>
-					<div class="dhc-card-body" style="display:flex;flex-direction:column;gap:14px;">
-						<?php foreach ( $presets as $key => $meta ) : ?>
-							<label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1px solid #e2e8f0;border-radius:10px;cursor:pointer;">
-								<input type="checkbox" name="preset[<?php echo esc_attr( $key ); ?>]" value="1" style="margin-top:2px;" <?php checked( ! empty( $cfg['presets'][ $key ] ) ); ?>>
-								<div style="flex:1;">
-									<strong style="font-size:14px;"><?php echo esc_html( $meta[0] ); ?></strong>
-									<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#f1f5f9;color:#475569;font-size:11px;font-weight:700;font-family:monospace;"><?php echo esc_html( $key ); ?></span>
-									<div style="font-size:13px;color:#64748b;margin-top:4px;line-height:1.5;"><?php echo esc_html( $meta[1] ); ?></div>
-								</div>
-							</label>
-						<?php endforeach; ?>
-
-						<div style="padding:12px 14px;border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc;">
-							<label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;color:#334155;">CTA selectors (comma-separated)</label>
-							<input type="text" name="cta_selectors" value="<?php echo esc_attr( $cfg['cta_selectors'] ); ?>" class="dhc-input" placeholder=".btn-primary, .elementor-button, a.button" style="width:100%;">
-							<div style="font-size:12px;color:#64748b;margin-top:4px;">Used by the "CTA button clicks" preset. Matches standard CSS selectors — text content is handled separately via custom events.</div>
-						</div>
-					</div>
-				</div>
-
-				<div class="dhc-card">
-					<div class="dhc-card-header">
-						<h2>Custom events</h2>
-						<p class="dhc-card-desc">Fire your own named event when a specific element is clicked. Good for "Book Now" buttons, "Download Menu" links, anything you want to A/B test or track.</p>
-					</div>
-					<div class="dhc-card-body">
-						<table class="widefat striped" style="border:0;margin-bottom:10px;" id="dhc-custom-table">
-							<thead>
-								<tr>
-									<th style="width:240px;">Event name</th>
-									<th>CSS selector</th>
-									<th style="width:40px;"></th>
-								</tr>
-							</thead>
-							<tbody>
-								<?php foreach ( $cfg['custom'] as $i => $r ) : ?>
-									<tr>
-										<td><input type="text" name="custom_name[]" value="<?php echo esc_attr( $r['name'] ); ?>" class="dhc-input" style="width:100%;" placeholder="book_now_click"></td>
-										<td><input type="text" name="custom_selector[]" value="<?php echo esc_attr( $r['selector'] ); ?>" class="dhc-input" style="width:100%;" placeholder=".book-now-btn, a[href*='/book']"></td>
-										<td><button type="button" class="dhc-btn dhc-btn-outline dhc-row-remove" style="padding:4px 10px;color:#dc2626;border-color:#fecaca;">×</button></td>
-									</tr>
-								<?php endforeach; ?>
-								<tr id="dhc-row-template" style="display:none;">
-									<td><input type="text" name="custom_name[]" class="dhc-input" style="width:100%;" placeholder="book_now_click"></td>
-									<td><input type="text" name="custom_selector[]" class="dhc-input" style="width:100%;" placeholder=".book-now-btn"></td>
-									<td><button type="button" class="dhc-btn dhc-btn-outline dhc-row-remove" style="padding:4px 10px;color:#dc2626;border-color:#fecaca;">×</button></td>
-								</tr>
-							</tbody>
-						</table>
-						<button type="button" id="dhc-add-custom" class="dhc-btn dhc-btn-outline" style="font-size:13px;">+ Add custom event</button>
-					</div>
-				</div>
-
-				<div class="dhc-card dhc-card-subtle">
-					<div class="dhc-card-body">
-						<strong style="font-size:13px;">Fire events from your own code (two ways):</strong>
-						<div style="font-size:13px;color:#334155;margin-top:8px;line-height:1.6;">
-							<div><strong>JavaScript:</strong> <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px;">window.dhcTrack('checkout_started', { plan: 'pro' });</code></div>
-							<div style="margin-top:6px;"><strong>PHP / other plugins:</strong> <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px;">do_action('dhc_track_event', 'lead_scored', [ 'score' =&gt; 42 ]);</code></div>
-						</div>
-					</div>
-				</div>
-
+		<div class="wrap dhc-wrap dhc-v2">
+			<?php DHC_Admin_Pages::header( 'dashicons-chart-line', 'Event Tracking', 'Skip GTM — turn on common events with a checkbox.' ); ?>
+			<?php if ( isset( $_GET['saved'] ) ) : ?><div class="notice notice-success is-dismissible"><p>Event tracking settings saved.</p></div><?php endif; ?>
+			<form id="dhc-event-settings-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<?php wp_nonce_field( 'dhc_event_tracker' ); ?><input type="hidden" name="action" value="dhc_event_tracker_save">
+				<section class="dhc-card"><div class="dhc-card-header"><h2>Master switch</h2></div><div class="dhc-card-body">
+					<label class="dhc-preset-row"><input type="checkbox" name="enabled" value="1" <?php checked( ! empty( $cfg['enabled'] ) ); ?>><span class="dhc-preset-copy"><strong>Enable event tracking</strong><p>Injects a listener script on every front-end page. Events fire to window.dataLayer (GTM) and gtag() (GA4).</p></span></label>
+					<label class="dhc-preset-row"><input type="checkbox" name="send_to_hub" value="1" <?php checked( ! empty( $cfg['send_to_hub'] ) ); ?>><span class="dhc-preset-copy"><strong>Send event counts to the Hub</strong><p>Beacons counts only so your agency can see activity across the site. No personal data.</p></span></label>
+				</div></section>
+				<section class="dhc-card"><div class="dhc-card-header"><h2>Preset events</h2><p>Toggle only what this site cares about.</p></div><div class="dhc-card-body"><div class="dhc-preset-list">
+					<?php foreach ( $presets as $key => $meta ) : ?><div class="dhc-preset-row-wrap"><label class="dhc-preset-row"><input type="checkbox" name="preset[<?php echo esc_attr( $key ); ?>]" value="1" <?php checked( ! empty( $cfg['presets'][ $key ] ) ); ?>><span class="dhc-preset-copy"><strong><?php echo esc_html( $meta[0] ); ?></strong><code><?php echo esc_html( $key ); ?></code><p><?php echo esc_html( $meta[1] ); ?></p></span></label><?php if ( 'cta_click' === $key ) : ?><label class="dhc-v2-field dhc-preset-inset"><span>CTA selectors (comma-separated)</span><input type="text" name="cta_selectors" value="<?php echo esc_attr( $cfg['cta_selectors'] ); ?>" placeholder=".button-primary, #contact-submit"></label><?php endif; ?></div><?php endforeach; ?>
+				</div></div></section>
+				<section class="dhc-card"><div class="dhc-card-header"><h2>Custom events</h2><p>Use Track Event in the WordPress toolbar to point-and-click tag one visually.</p></div><div class="dhc-card-body">
+					<?php if ( empty( $cfg['custom'] ) ) : ?><div class="dhc-empty"><strong>No custom events yet</strong><p>Open the visual picker and click any element on the live site.</p><button type="button" class="dhc-btn dhc-btn-outline" data-open-event-picker>+ Add custom event</button></div><?php else : ?>
+					<div class="dhc-table-wrap"><table class="dhc-v2-table" id="dhc-custom-table"><thead><tr><th>Event name</th><th>Element</th><th>Fires on</th></tr></thead><tbody><?php foreach ( $cfg['custom'] as $event ) : ?><tr data-event-name="<?php echo esc_attr( $event['name'] ?? '' ); ?>"><td><input type="text" name="custom_name[]" value="<?php echo esc_attr( $event['name'] ?? '' ); ?>"></td><td><input type="text" name="custom_selector[]" value="<?php echo esc_attr( $event['selector'] ?? '' ); ?>"></td><td><select name="custom_trigger[]" aria-label="Trigger for <?php echo esc_attr( $event['name'] ?? 'custom event' ); ?>"><option value="click" <?php selected( $event['trigger'] ?? 'click', 'click' ); ?>>Click</option><option value="view" <?php selected( $event['trigger'] ?? 'click', 'view' ); ?>>View</option><option value="hover" <?php selected( $event['trigger'] ?? 'click', 'hover' ); ?>>Hover</option></select></td></tr><?php endforeach; ?></tbody></table></div><button type="button" class="dhc-btn dhc-btn-outline" data-open-event-picker>+ Add custom event</button><?php endif; ?><div id="dhc-custom-picker-state"></div>
+				</div></section>
+				<section class="dhc-card"><div class="dhc-card-header"><h2>Fire events from your own code</h2></div><div class="dhc-card-body dhc-code-pair"><div><p>JavaScript global</p><div class="dhc-code-snippet">window.dhcTrack('event_name', { key: 'value' });</div></div><div><p>PHP action hook</p><div class="dhc-code-snippet">do_action('dhc_track_event', 'event_name', $params);</div></div></div></section>
 				<button type="submit" class="dhc-btn dhc-btn-primary">Save settings</button>
 			</form>
 		</div>
-		<script>
-		(function(){
-			document.getElementById('dhc-add-custom').addEventListener('click', function(){
-				var tbody = document.querySelector('#dhc-custom-table tbody');
-				var tpl = document.getElementById('dhc-row-template');
-				var clone = tpl.cloneNode(true);
-				clone.id = '';
-				clone.style.display = '';
-				tbody.insertBefore(clone, tpl);
-			});
-			document.addEventListener('click', function(e){
-				if (e.target && e.target.classList && e.target.classList.contains('dhc-row-remove')) {
-					var tr = e.target.closest('tr');
-					if (tr && tr.id !== 'dhc-row-template') tr.remove();
-				}
-			});
-		})();
-		</script>
 		<?php
 	}
 
-	/** Inject the in-page event listener. Runs on wp_footer when enabled. */
 	public static function inject_tracker() {
 		$cfg = self::get_config();
 
@@ -297,7 +200,7 @@ class DHC_Event_Tracker {
 		// public-safe) NOT dhc_api_key (private connector key — must never
 		// appear in public HTML because the same key authenticates privileged
 		// Hub and WordPress REST write routes).
-		$telemetry_token = get_option( 'dhc_telemetry_token', '' );
+		$telemetry_token = DHC_Heartbeat::public_telemetry_token();
 		$hub_base = defined( 'DHC_HUB_API_BASE' ) ? DHC_HUB_API_BASE : 'https://hub.dsquaredmedia.net/api';
 		$beacon = ( ! empty( $cfg['send_to_hub'] ) && ! empty( $telemetry_token ) )
 			? array(
@@ -324,7 +227,7 @@ class DHC_Event_Tracker {
 			// agency rollup view. Uses navigator.sendBeacon when leaving
 			// the page so we don't lose the last few events on tab close.
 			var BEACON = CFG.beacon || null;
-			var beacon_queue = [];
+			var beacon_queue = []; // Aggregate-only records: {name,count}.
 			var BEACON_FLUSH_MS = 30 * 1000;
 			var BEACON_MAX_QUEUE = 50; // flush early if queue grows past this
 			var _beaconFlushing = false; // guard: only one in-flight fetch at a time
@@ -334,7 +237,15 @@ class DHC_Event_Tracker {
 				if (!BEACON || !beacon_queue.length) return;
 				// Snapshot the queue without removing — removal only happens after
 				// confirmed delivery so a network failure doesn't silently discard events.
-				var batch = beacon_queue.slice(0);
+				var rawCount = beacon_queue.length;
+				var totals = Object.create(null);
+				beacon_queue.slice(0, rawCount).forEach(function(row){
+					var eventName = normalizeEventName(row && row.name);
+					if (!eventName) return;
+					totals[eventName] = Math.min(10000, (totals[eventName] || 0) + Math.max(1, Number(row.count) || 1));
+				});
+				var batch = Object.keys(totals).map(function(name){ return { name: name, count: totals[name] }; });
+				if (!batch.length) { beacon_queue.splice(0, rawCount); return; }
 				var payload = JSON.stringify({ events: batch, site_url: BEACON.site_url });
 
 				if (useSendBeacon) {
@@ -344,7 +255,7 @@ class DHC_Event_Tracker {
 					// honour keepalive during page unload since the Fetch spec was updated.
 					// If fetch isn't available (very old browsers) we drop the batch rather
 					// than risk leaking the token in a URL.
-					beacon_queue.splice(0, batch.length);
+					beacon_queue.splice(0, rawCount);
 					try {
 						fetch(BEACON.url, {
 							method: 'POST',
@@ -372,12 +283,12 @@ class DHC_Event_Tracker {
 					}).then(function(resp) {
 						if (resp.ok) {
 							// Confirmed delivery — now safe to remove from queue.
-							beacon_queue.splice(0, batch.length);
+							beacon_queue.splice(0, rawCount);
 							_beaconFlushing = false;
 						} else if (n < BEACON_MAX_RETRY) {
 							setTimeout(function() { attempt(n + 1); }, 1000 * Math.pow(2, n - 1));
 						} else {
-							beacon_queue.splice(0, batch.length);
+							beacon_queue.splice(0, rawCount);
 							console.warn('[DHC] Hub beacon: ' + batch.length + ' events lost after ' + BEACON_MAX_RETRY + ' attempts (HTTP ' + resp.status + ')');
 							_beaconFlushing = false;
 						}
@@ -385,7 +296,7 @@ class DHC_Event_Tracker {
 						if (n < BEACON_MAX_RETRY) {
 							setTimeout(function() { attempt(n + 1); }, 1000 * Math.pow(2, n - 1));
 						} else {
-							beacon_queue.splice(0, batch.length);
+							beacon_queue.splice(0, rawCount);
 							console.warn('[DHC] Hub beacon: ' + batch.length + ' events lost after ' + BEACON_MAX_RETRY + ' attempts (network error)');
 							_beaconFlushing = false;
 						}
@@ -398,10 +309,21 @@ class DHC_Event_Tracker {
 				window.addEventListener('pagehide', function() { flushBeacon(true); }, false);
 			}
 
+			function normalizeEventName(name) {
+				return String(name || '').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 64);
+			}
+
+			function queueAggregate(name, count) {
+				name = normalizeEventName(name);
+				if (!BEACON || !name) return;
+				beacon_queue.push({ name: name, count: Math.max(1, Number(count) || 1) });
+				if (beacon_queue.length >= BEACON_MAX_QUEUE) flushBeacon(false);
+			}
+
 			// Core push — goes to dataLayer (GTM) + gtag (GA4). Both if both
 			// are present; either if only one is; skips silently if neither.
 			// Also pushes onto the Hub beacon queue when configured.
-			function track(name, params) {
+			function track(name, params, aggregateCount) {
 				if (!name) return;
 				params = params || {};
 				params.event = name;
@@ -410,20 +332,18 @@ class DHC_Event_Tracker {
 					window.dataLayer.push(params);
 				} catch (e) {}
 				try { if (typeof window.gtag === 'function') window.gtag('event', name, params); } catch (e) {}
-				// Hub beacon — strip the synthesized "event" key (server already
-				// has the name as a top-level field) to keep payload tight.
-				if (BEACON) {
-					var p = {};
-					for (var k in params) { if (params.hasOwnProperty(k) && k !== 'event') p[k] = params[k]; }
-					beacon_queue.push({ name: name, params: p, ts: Date.now() });
-					if (beacon_queue.length >= BEACON_MAX_QUEUE) flushBeacon(false);
-				}
+				// Hub telemetry is deliberately separate from analytics params.
+				// Only a normalized event name and aggregate count leave the browser.
+				queueAggregate(name, aggregateCount || 1);
 			}
 			// Expose for devs — window.dhcTrack(name, params).
 			window.dhcTrack = track;
 
 			// Flush any PHP-queued events on page load.
-			(CFG.queued || []).forEach(function(q){ track(q.name, q.params || {}); });
+			(CFG.queued || []).forEach(function(q){
+				var count = Math.max(1, Math.min(10000, Number(q.count) || 1));
+				track(q.name, { event_count: count }, count);
+			});
 
 			// ── Preset: form_submit ───────────────────────────────
 			if (CFG.presets.form_submit) {
@@ -546,11 +466,11 @@ class DHC_Event_Tracker {
 				}, false);
 			}
 
-			// ── Custom events — delegated click matcher ──────────
+			// ── Custom events — click, hover or in-view matchers ──
 			if (CFG.custom && CFG.custom.length) {
 				document.addEventListener('click', function(ev){
 					CFG.custom.forEach(function(rule){
-						if (!rule.selector || !rule.name) return;
+						if (!rule.selector || !rule.name || (rule.trigger && rule.trigger !== 'click')) return;
 						try {
 							var el = ev.target.closest && ev.target.closest(rule.selector);
 							if (el) track(rule.name, {
@@ -560,6 +480,18 @@ class DHC_Event_Tracker {
 						} catch (e) {}
 					});
 				}, true);
+				document.addEventListener('mouseover', function(ev){
+					CFG.custom.forEach(function(rule){
+						if (!rule.selector || !rule.name || rule.trigger !== 'hover') return;
+						try { var el = ev.target.closest && ev.target.closest(rule.selector); if (el && !el.__dhcHoverFired) { el.__dhcHoverFired = true; track(rule.name, { element_text: (el.innerText || '').trim().slice(0,80) }); } } catch(e) {}
+					});
+				}, true);
+				if ('IntersectionObserver' in window) {
+					CFG.custom.forEach(function(rule){
+						if (!rule.selector || !rule.name || rule.trigger !== 'view') return;
+						try { document.querySelectorAll(rule.selector).forEach(function(el){ var observer = new IntersectionObserver(function(entries){ entries.forEach(function(entry){ if(entry.isIntersecting){ track(rule.name,{ element_text:(el.innerText||'').trim().slice(0,80) }); observer.disconnect(); } }); },{threshold:.5}); observer.observe(el); }); } catch(e) {}
+					});
+				}
 			}
 		})();
 		</script>

@@ -115,7 +115,7 @@ The Form Capture module includes a multi-layer spam filter that runs before any 
 | **Submission velocity** | Bot floods | Rate limiting per IP (max 3 submissions per 5 minutes) |
 | **Gibberish detection** | Nonsense entries | Checks consonant-to-vowel ratio in text fields |
 
-**Important:** The plugin does not store form data locally. It intercepts submissions, filters spam, and sends only clean leads to the Hub. The actual form submission still goes through normally to wherever the site owner has it configured.
+**Important:** The plugin stores the newest 250 clean and spam submissions in a local review inbox and sends clean lead details to the Hub. The actual form submission still goes through normally to wherever the site owner has it configured. WordPress personal-data export and erasure requests can find and remove local inbox rows by exact email address; Hub copies must be handled in the connected Hub account.
 
 ---
 
@@ -130,9 +130,10 @@ The plugin includes a self-hosted auto-updater that checks GitHub releases first
 The plugin integrates with WordPress's privacy policy page generator and includes GDPR-compliant data handling:
 
 - **Site Health Monitor** collects anonymous performance metrics (no PII)
-- **Form Capture** does not store personal data locally — only sends sanitized lead records to the Hub
+- **Form Capture** stores a bounded local review inbox containing the newest 250 submissions and sends clean lead records to the Hub
 - **AI Discovery** publishes only business information the site owner explicitly provides
 - Full privacy policy text is auto-suggested for the site's privacy policy page
+- WordPress personal-data export and erasure requests include exact-email matches from both the local form inbox and activity history
 
 ---
 

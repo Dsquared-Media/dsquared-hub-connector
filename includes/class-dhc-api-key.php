@@ -52,6 +52,23 @@ class DHC_API_Key {
             if ( false !== $cached && is_array( $cached )
                 && ( $cached['site_url'] ?? '' ) === home_url( '/' )
                 && ( $cached['key_hash'] ?? '' ) === hash( 'sha256', $api_key ) ) {
+                // A cached entitlement must never outlive its own known expiry.
+                // The transient TTL is only a network-cache duration; it is not
+                // permission to keep collecting or exposing subscription data.
+                if ( ! empty( $cached['expires'] ) ) {
+                    $expiry = strtotime( $cached['expires'] );
+                    if ( $expiry && $expiry <= time() ) {
+                        $cached['valid']   = false;
+                        $cached['expired'] = true;
+                        $cached['message'] = esc_html__( 'Your Dsquared Hub subscription has expired. Features are currently disabled but your website is unaffected. Renew your subscription to restore full functionality.', 'dsquared-hub-connector' );
+                        set_transient( self::CACHE_KEY, $cached, self::CACHE_DURATION );
+                        update_option( 'dhc_subscription', array(
+                            'status'  => 'inactive',
+                            'tier'    => $cached['tier'] ?? 'starter',
+                            'expires' => $cached['expires'],
+                        ) );
+                    }
+                }
                 return $cached;
             }
         }
@@ -91,6 +108,10 @@ class DHC_API_Key {
                     'site_id' => sanitize_text_field( $body['site_id'] ?? '' ),
                     'site_url' => home_url( '/' ),
                     'key_hash' => hash( 'sha256', $api_key ),
+                    'credits_remaining' => isset( $body['credits_remaining'] ) ? absint( $body['credits_remaining'] ) : ( isset( $body['credit_balance'] ) ? absint( $body['credit_balance'] ) : null ),
+                    'credits_monthly'   => isset( $body['credits_monthly'] ) ? absint( $body['credits_monthly'] ) : ( isset( $body['monthly_credits'] ) ? absint( $body['monthly_credits'] ) : null ),
+                    'scan_worker'       => sanitize_text_field( $body['scan_worker'] ?? $body['worker_status'] ?? '' ),
+                    'last_scan_check'   => sanitize_text_field( $body['last_scan_check'] ?? $body['last_scan'] ?? '' ),
                 );
 
                 if ( ! empty( $subscription['expires'] ) ) {
@@ -250,8 +271,9 @@ class DHC_API_Key {
             );
         }
 
-        // Verify subscription is active
-        $subscription = self::validate( $stored_key );
+        // Privileged requests must observe Hub revocation immediately; the
+        // subscription cache is only for passive module/UI availability.
+        $subscription = self::validate( $stored_key, true );
         if ( ! $subscription['valid'] ) {
             return new WP_Error(
                 'dhc_subscription_inactive',

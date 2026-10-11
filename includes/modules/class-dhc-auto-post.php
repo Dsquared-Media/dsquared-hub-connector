@@ -238,20 +238,6 @@ class DHC_Auto_Post {
      * @param string $title   Post title.
      */
     private static function log_post_creation( $post_id, $title ) {
-        $log = get_option( 'dhc_activity_log', array() );
-
-        // Keep only last 50 entries
-        if ( count( $log ) >= 50 ) {
-            $log = array_slice( $log, -49 );
-        }
-
-        $log[] = array(
-            'action'  => 'auto_post',
-            'post_id' => $post_id,
-            'title'   => $title,
-            'time'    => current_time( 'mysql' ),
-        );
-
-        update_option( 'dhc_activity_log', $log );
+		DHC_Event_Logger::activity( 'auto_post', 'auto_post', 'Created draft “' . sanitize_text_field( $title ) . '” (post ' . absint( $post_id ) . ').', 'hub' );
     }
 }
