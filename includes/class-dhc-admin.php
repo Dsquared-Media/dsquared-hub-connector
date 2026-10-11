@@ -381,7 +381,7 @@ class DHC_Admin {
                         ),
                         'form_capture' => array(
                             'name' => __( 'Form Submission Capture', 'dsquared-hub-connector' ),
-                            'desc' => __( 'Hook into popular form plugins to capture leads, filter spam in real-time, and send clean lead data to your Hub pipeline. No personal data stored locally.', 'dsquared-hub-connector' ),
+                            'desc' => __( 'Capture leads from popular form plugins, filter spam, keep a bounded local review inbox, and send clean lead data to your Hub pipeline.', 'dsquared-hub-connector' ),
                             'dashicon' => 'dashicons-groups',
                             'tier' => 'Pro',
                         ),

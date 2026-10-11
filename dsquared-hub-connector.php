@@ -52,6 +52,7 @@ if ( version_compare( PHP_VERSION, '7.4', '<' ) ) {
 // Core classes
 require_once DHC_PLUGIN_DIR . 'includes/class-dhc-api-key.php';
 require_once DHC_PLUGIN_DIR . 'includes/class-dhc-rest.php';
+require_once DHC_PLUGIN_DIR . 'includes/class-dhc-csv.php';
 require_once DHC_PLUGIN_DIR . 'includes/class-dhc-admin.php';
 require_once DHC_PLUGIN_DIR . 'includes/class-dhc-admin-pages.php';
 require_once DHC_PLUGIN_DIR . 'includes/class-dhc-updater.php';

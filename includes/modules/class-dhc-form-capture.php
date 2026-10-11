@@ -3,8 +3,8 @@
  * Module 7: Form Submission Capture
  *
  * Hooks into popular WordPress form plugins to intercept submissions,
- * filters out spam, and reports clean leads to the Hub. Does NOT store
- * any form data locally — only observes and reports.
+ * filters out spam, stores a bounded local review inbox, and reports clean
+ * leads to the Hub.
  *
  * Supported form plugins:
  * - Contact Form 7
@@ -400,6 +400,9 @@ class DHC_Form_Capture {
             'ip_address'  => sanitize_text_field( $this->get_client_ip() ),
             'spam'        => (bool) $is_spam,
             'spam_reason' => sanitize_text_field( $reason ),
+            // Immutable capture-time provenance. The mutable spam review status
+            // must never be used to decide whether a Hub copy may exist.
+            'forwarded_to_hub' => ! $is_spam,
             'created_at'  => current_time( 'mysql' ),
         );
         array_unshift( $rows, $row );
@@ -409,6 +412,55 @@ class DHC_Form_Capture {
     public static function get_submissions() {
         $rows = get_option( self::INBOX_OPTION, array() );
         return is_array( $rows ) ? array_values( $rows ) : array();
+    }
+
+    /**
+     * Return local inbox rows whose normalized email exactly matches a
+     * WordPress privacy request.
+     *
+     * @param string $email_address Email address supplied by WordPress.
+     * @return array
+     */
+    public static function get_submissions_for_email( $email_address ) {
+        $email_address = strtolower( sanitize_email( $email_address ) );
+        if ( '' === $email_address ) return array();
+
+        return array_values( array_filter( self::get_submissions(), function ( $row ) use ( $email_address ) {
+            return $email_address === strtolower( sanitize_email( $row['email'] ?? '' ) );
+        } ) );
+    }
+
+    /**
+     * Delete every local inbox row matching an exact normalized email.
+     *
+     * @param string $email_address Email address supplied by WordPress.
+     * @return array Removal summary.
+     */
+    public static function erase_submissions_for_email( $email_address ) {
+        $email_address = strtolower( sanitize_email( $email_address ) );
+        if ( '' === $email_address ) return array( 'removed' => 0, 'forwarded' => false );
+
+        $rows      = self::get_submissions();
+        $kept      = array();
+        $removed   = 0;
+        $forwarded = false;
+
+        foreach ( $rows as $row ) {
+            if ( $email_address === strtolower( sanitize_email( $row['email'] ?? '' ) ) ) {
+                $removed++;
+                // Records created before forwarding provenance was introduced
+                // are treated conservatively so erasure never promises that a
+                // possible Hub copy was removed.
+                if ( ! array_key_exists( 'forwarded_to_hub', $row ) || ! empty( $row['forwarded_to_hub'] ) ) {
+                    $forwarded = true;
+                }
+                continue;
+            }
+            $kept[] = $row;
+        }
+
+        if ( $removed ) update_option( self::INBOX_OPTION, $kept, false );
+        return array( 'removed' => $removed, 'forwarded' => $forwarded );
     }
 
     public static function ajax_toggle_spam() {
@@ -439,11 +491,11 @@ class DHC_Form_Capture {
         header( 'Content-Type: text/csv; charset=utf-8' );
         header( 'Content-Disposition: attachment; filename="d2-form-submissions-' . gmdate( 'Y-m-d' ) . '.csv"' );
         $out = fopen( 'php://output', 'w' );
-        fputcsv( $out, array( 'Date', 'Status', 'Name', 'Email', 'Phone', 'Form', 'Plugin', 'Source', 'IP address', 'Message' ) );
+        DHC_CSV::write_row( $out, array( 'Date', 'Status', 'Name', 'Email', 'Phone', 'Form', 'Plugin', 'Source', 'IP address', 'Message' ) );
         $status = sanitize_key( wp_unslash( $_GET['status'] ?? 'all' ) );
         foreach ( self::get_submissions() as $row ) {
             if ( 'spam' === $status && empty( $row['spam'] ) ) continue;
-            fputcsv( $out, array( $row['created_at'] ?? '', ! empty( $row['spam'] ) ? 'Spam' : 'Inbox', $row['name'] ?? '', $row['email'] ?? '', $row['phone'] ?? '', $row['form_name'] ?? '', $row['form_plugin'] ?? '', $row['source_url'] ?? '', $row['ip_address'] ?? '', $row['message'] ?? '' ) );
+            DHC_CSV::write_row( $out, array( $row['created_at'] ?? '', ! empty( $row['spam'] ) ? 'Spam' : 'Inbox', $row['name'] ?? '', $row['email'] ?? '', $row['phone'] ?? '', $row['form_name'] ?? '', $row['form_plugin'] ?? '', $row['source_url'] ?? '', $row['ip_address'] ?? '', $row['message'] ?? '' ) );
         }
         fclose( $out );
         exit;

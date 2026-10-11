@@ -24,12 +24,14 @@ All features are subscription-gated via an API key. If your subscription lapses,
 *   **Site Health Monitor:** Collect real-user Core Web Vitals (LCP, CLS, INP, TTFB, FCP) and report them to the Hub for monitoring. Uses a lightweight ~2KB script. (Pro Tier)
 *   **AI Discovery:** Generate an AI-readable business profile (`llms.txt`), inject LocalBusiness schema, and automatically ping IndexNow (Bing/Yandex) when content changes to ensure AI search engines know you exist. (Pro Tier)
 *   **Content Decay Alerts:** Monitor your published posts for freshness and report stale content back to the Hub so you know what needs updating. (Growth+ Tier)
-*   **Form Submission Capture:** Hook into popular form plugins (Contact Form 7, Gravity Forms, WPForms, Elementor) to capture leads, filter spam in real-time, and send clean lead data to your Hub pipeline. (Pro Tier)
+*   **Form Submission Capture:** Hook into popular form plugins (Contact Form 7, Gravity Forms, WPForms, Elementor) to capture leads, filter spam in real-time, keep a bounded local review inbox, and send clean lead data to your Hub pipeline. (Pro Tier)
 *   **Alt Text Generator:** Review Media Library images with missing alt text, generate concise Hub-backed drafts, and save approved changes without leaving WordPress. People and headshots are left for manual review. (Growth+ Tier)
 
 ### Privacy & Data Collection
 
 This plugin collects anonymous Core Web Vitals performance data from your visitors to help you monitor site health. If Form Submission Capture is enabled, it stores a bounded local inbox of the newest 250 submissions for review and CSV export, filters spam, and forwards clean leads to the connected Hub account. The inbox can include the submitted contact fields, source URL, timestamp, and request IP address. Activity records are also bounded to 250 entries and never include the API key or full submitted form values.
+
+WordPress personal-data export and erasure requests can find and remove local form inbox rows by exact email address. Clean lead copies already forwarded to the connected Hub account must be handled through that account or its operator.
 
 == Installation ==
 

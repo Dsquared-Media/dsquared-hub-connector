@@ -6,6 +6,9 @@
 - Revalidate privileged Hub requests against the authoritative subscription service instead of trusting the display cache.
 - Clear derived telemetry state when the connector key changes or the plugin is deactivated, while retaining the private key for intentional reactivation.
 - Repair the Content Decay and Leads REST routes by routing them through their initialized module instances.
+- Make the local form inbox truthful in privacy-policy, export, and erasure workflows while preserving its newest-250 review contract.
+- Neutralize spreadsheet-formula prefixes in every connector CSV export, including historical stored rows.
+- Pin external GitHub Actions to reviewed immutable commit SHAs for reproducible security and release workflows.
 - Preserve all 1.23.0 admin, form inbox, tracking script, schema, activity log, AI Discovery, and IndexNow capabilities.
 
 ## 1.23.0
