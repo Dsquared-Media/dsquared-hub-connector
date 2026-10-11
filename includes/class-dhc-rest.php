@@ -124,20 +124,6 @@ class DHC_REST {
             ),
         ) );
 
-        // ── Content Decay — trigger scan ────────────────────────
-        register_rest_route( self::NAMESPACE, '/content-decay', array(
-            'methods'             => 'GET',
-            'callback'            => array( 'DHC_Content_Decay', 'handle_request' ),
-            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
-        ) );
-
-        // ── Form Capture — lead stats ───────────────────────────
-        register_rest_route( self::NAMESPACE, '/leads', array(
-            'methods'             => 'GET',
-            'callback'            => array( 'DHC_Form_Capture', 'handle_stats_request' ),
-            'permission_callback' => array( 'DHC_API_Key', 'authenticate_request' ),
-        ) );
-
         // ── Media / Alt Text Updates (v1.9) ─────────────────────
         // Core /wp-json/wp/v2/media/:id POST requires standard WP
         // user auth, which the Hub doesn't have — only our custom

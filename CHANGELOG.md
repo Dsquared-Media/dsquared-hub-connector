@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.21.2
+
+- Fix the Content Decay report route so it uses the initialized module handler instead of an obsolete static callback.
+- Restore the documented `/leads` statistics route while retaining `/leads/stats` as an equivalent alias.
+
 ## 1.21.1
 
 - Bind browser-visible narrow telemetry to the current private-key fingerprint and site; reject stale, malformed, or private-as-public values.
