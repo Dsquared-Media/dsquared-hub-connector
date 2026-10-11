@@ -47,6 +47,7 @@ class DHC_Privacy {
         $policy .= '<ul>';
         $policy .= '<li>' . esc_html__( 'Core Web Vitals performance metrics (LCP, CLS, INP, TTFB, FCP) — anonymous, aggregated browser performance data collected when the Site Health Monitor module is enabled.', 'dsquared-hub-connector' ) . '</li>';
         $policy .= '<li>' . esc_html__( 'Form submission data — when Form Submission Capture is enabled, the plugin stores a local review inbox containing the newest 250 clean and spam submissions. A row can include the submitted name, email, phone, message, form name and provider, source URL, request IP address, spam status, and timestamp. Clean lead details are also transmitted to the connected Dsquared Media Hub account.', 'dsquared-hub-connector' ) . '</li>';
+        $policy .= '<li>' . esc_html__( 'Activity history — while the connector subscription is active, the plugin stores up to 250 recent WordPress and Hub actions. A row can include the administrator or user display name, email address, request IP address, action, module, origin, and timestamp.', 'dsquared-hub-connector' ) . '</li>';
         $policy .= '</ul>';
 
         $policy .= '<h3>' . esc_html__( 'How We Use This Data', 'dsquared-hub-connector' ) . '</h3>';
@@ -60,10 +61,10 @@ class DHC_Privacy {
         $policy .= '</ul>';
 
         $policy .= '<h3>' . esc_html__( 'Data Retention', 'dsquared-hub-connector' ) . '</h3>';
-        $policy .= '<p>' . esc_html__( 'Core Web Vitals data is retained locally for 90 days. Activity logs and the form review inbox are each limited to the 250 most recent entries. Monthly lead/spam counters (aggregate numbers only, no personal data) are retained for 12 months. Disabling the module, a subscription lapse, or plugin deactivation stops new collection but keeps existing local records so an administrator can review or erase them. Uninstalling the plugin removes its local records.', 'dsquared-hub-connector' ) . '</p>';
+        $policy .= '<p>' . esc_html__( 'Core Web Vitals data is retained locally for 90 days. Activity logs and the form review inbox are each limited to the 250 most recent entries. Monthly lead/spam counters (aggregate numbers only, no personal data) are retained for 12 months. Disabling Form Submission Capture stops new form-inbox collection. A subscription lapse or plugin deactivation stops new connector collection but keeps existing local records so an administrator can review or erase them. Uninstalling the plugin removes its local records.', 'dsquared-hub-connector' ) . '</p>';
 
         $policy .= '<h3>' . esc_html__( 'Access and Erasure', 'dsquared-hub-connector' ) . '</h3>';
-        $policy .= '<p>' . esc_html__( 'WordPress personal-data export and erasure requests can find local form inbox rows by an exact email-address match. Erasure removes matching local rows. Clean leads may also exist in the connected Dsquared Media Hub account and must be handled through that account or its operator.', 'dsquared-hub-connector' ) . '</p>';
+        $policy .= '<p>' . esc_html__( 'WordPress personal-data export and erasure requests can find local form inbox and activity history rows by an exact email-address match. Erasure removes matching local rows. Clean leads may also exist in the connected Dsquared Media Hub account and must be handled through that account or its operator.', 'dsquared-hub-connector' ) . '</p>';
 
         $policy .= '<h3>' . esc_html__( 'Plugin Deactivation', 'dsquared-hub-connector' ) . '</h3>';
         $policy .= '<p>' . esc_html__( 'If the plugin is deactivated or the subscription expires, all data collection stops immediately. Your website continues to function normally. Uninstalling the plugin removes all locally stored data.', 'dsquared-hub-connector' ) . '</p>';
@@ -93,12 +94,13 @@ class DHC_Privacy {
      * @return array
      */
     public static function export_personal_data( $email_address, $page = 1 ) {
-        if ( ! class_exists( 'DHC_Form_Capture' ) || 1 !== (int) $page ) {
+        if ( 1 !== (int) $page ) {
             return array( 'data' => array(), 'done' => true );
         }
 
         $data = array();
-        foreach ( DHC_Form_Capture::get_submissions_for_email( $email_address ) as $row ) {
+        $form_rows = class_exists( 'DHC_Form_Capture' ) ? DHC_Form_Capture::get_submissions_for_email( $email_address ) : array();
+        foreach ( $form_rows as $row ) {
             $item_data = array();
             $fields = array(
                 'name'          => esc_html__( 'Name', 'dsquared-hub-connector' ),
@@ -135,6 +137,33 @@ class DHC_Privacy {
             );
         }
 
+        $activity_rows = class_exists( 'DHC_Event_Logger' ) ? DHC_Event_Logger::get_activity_for_email( $email_address ) : array();
+        foreach ( $activity_rows as $row ) {
+            $source_index = isset( $row['_privacy_index'] ) ? (string) $row['_privacy_index'] : '';
+            unset( $row['_privacy_index'] );
+            $item_data = array();
+            $fields = array(
+                'user'    => esc_html__( 'User', 'dsquared-hub-connector' ),
+                'email'   => esc_html__( 'Email', 'dsquared-hub-connector' ),
+                'ip'      => esc_html__( 'IP address', 'dsquared-hub-connector' ),
+                'message' => esc_html__( 'Activity', 'dsquared-hub-connector' ),
+                'time'    => esc_html__( 'Time', 'dsquared-hub-connector' ),
+                'origin'  => esc_html__( 'Origin', 'dsquared-hub-connector' ),
+                'module'  => esc_html__( 'Module', 'dsquared-hub-connector' ),
+            );
+            foreach ( $fields as $key => $label ) {
+                if ( isset( $row[ $key ] ) && '' !== (string) $row[ $key ] ) {
+                    $item_data[] = array( 'name' => $label, 'value' => (string) $row[ $key ] );
+                }
+            }
+            $data[] = array(
+                'group_id'    => 'dsquared-hub-activity-log',
+                'group_label' => esc_html__( 'Dsquared Hub activity log', 'dsquared-hub-connector' ),
+                'item_id'     => 'dhc-activity-' . md5( $source_index . '|' . wp_json_encode( $row ) ),
+                'data'        => $item_data,
+            );
+        }
+
         return array(
             'data' => $data,
             'done' => true,
@@ -163,11 +192,16 @@ class DHC_Privacy {
      * @return array
      */
     public static function erase_personal_data( $email_address, $page = 1 ) {
-        if ( ! class_exists( 'DHC_Form_Capture' ) || 1 !== (int) $page ) {
+        if ( 1 !== (int) $page ) {
             return array( 'items_removed' => false, 'items_retained' => false, 'messages' => array(), 'done' => true );
         }
 
-        $result   = DHC_Form_Capture::erase_submissions_for_email( $email_address );
+        $result   = class_exists( 'DHC_Form_Capture' )
+            ? DHC_Form_Capture::erase_submissions_for_email( $email_address )
+            : array( 'removed' => 0, 'forwarded' => false );
+        $activity_removed = class_exists( 'DHC_Event_Logger' )
+            ? DHC_Event_Logger::erase_activity_for_email( $email_address )
+            : 0;
         $messages = array();
         if ( $result['removed'] ) {
             $messages[] = sprintf(
@@ -178,9 +212,15 @@ class DHC_Privacy {
         if ( $result['forwarded'] ) {
             $messages[] = esc_html__( 'A clean lead may also exist in the connected Dsquared Media Hub account and must be erased there separately.', 'dsquared-hub-connector' );
         }
+        if ( $activity_removed ) {
+            $messages[] = sprintf(
+                esc_html__( 'Removed %d matching local activity record(s).', 'dsquared-hub-connector' ),
+                (int) $activity_removed
+            );
+        }
 
         return array(
-            'items_removed'  => (bool) $result['removed'],
+            'items_removed'  => (bool) ( $result['removed'] || $activity_removed ),
             'items_retained' => (bool) $result['forwarded'],
             'messages'       => $messages,
             'done'           => true,

@@ -153,21 +153,65 @@ test('forced link validation checks the live HTTP response even for a published 
     function get_permalink() { return 'https://example.com/services/'; }
     function get_post_meta() { return ''; } function get_post_status() { return 'publish'; }
     function untrailingslashit($v) { return rtrim($v, '/'); }
-    function wp_remote_head() { return array('response'=>array('code'=>404),'headers'=>array()); }
+    $requested = array();
+    function wp_safe_remote_head($url, $args) { global $requested; $requested = array('url'=>$url,'args'=>$args); return array('response'=>array('code'=>404),'headers'=>array()); }
+    function wp_remote_head() { throw new Exception('unsafe helper must not be called'); }
     function is_wp_error() { return false; }
     function wp_remote_retrieve_response_code($r) { return $r['response']['code']; }
     function wp_remote_retrieve_header() { return ''; }
     require ${JSON.stringify(modulePath)};
-    echo json_encode((new DHC_AI_Discovery())->validate_discovery_link('https://example.com/services/', true));
+    echo json_encode(array('result'=>(new DHC_AI_Discovery())->validate_discovery_link('https://example.com/services/', true),'requested'=>$requested));
   `;
   const result = spawnSync('php', ['-r', script], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   const value = JSON.parse(result.stdout);
-  assert.equal(value.ok, false);
-  assert.equal(value.status, 404);
+  assert.equal(value.result.ok, false);
+  assert.equal(value.result.status, 404);
+  assert.equal(value.requested.url, 'https://example.com/services/');
+  assert.equal(value.requested.args.redirection, 0);
   assert.match(discovery, /foreach \( \$this->auto_discovery_links\(\) as \$link \) \{\s*\$validation = \$this->validate_discovery_link/);
   assert.match(discovery, /wp_html_excerpt\( \$description, 120/);
   assert.match(discovery, /'post_type' => 'post'[\s\S]*?'posts_per_page' => 10/);
+});
+
+test('forced link validation never follows a redirect to a private destination', () => {
+  const script = `
+    define('ABSPATH', '/tmp/'); define('DHC_VERSION', '1.21.0'); define('HOUR_IN_SECONDS', 3600);
+    $requested = array();
+    function add_action() {} function add_filter() {}
+    function esc_url_raw($v) { return $v; }
+    function wp_parse_url($u, $c = -1) { return parse_url($u, $c); }
+    function home_url($p = '/') { return 'https://example.com' . $p; }
+    function get_transient() { return false; } function set_transient() {}
+    function url_to_postid() { return 7; }
+    function get_post() { return (object) array('ID'=>7,'post_status'=>'publish','post_type'=>'page','post_name'=>'services'); }
+    function get_post_type_object() { return (object) array('public'=>true,'publicly_queryable'=>true); }
+    function get_permalink() { return 'https://example.com/services/'; }
+    function get_post_meta() { return ''; } function get_post_status() { return 'publish'; }
+    function untrailingslashit($v) { return rtrim($v, '/'); }
+    function wp_safe_remote_head($url, $args) { global $requested; $requested[] = array('url'=>$url,'args'=>$args); return array('response'=>array('code'=>302),'headers'=>array('location'=>'http://127.0.0.1:8080/admin')); }
+    function wp_remote_head() { throw new Exception('unsafe helper must not be called'); }
+    function is_wp_error() { return false; }
+    function wp_remote_retrieve_response_code($r) { return $r['response']['code']; }
+    function wp_remote_retrieve_header($r, $key) { return $r['headers'][$key] ?? ''; }
+    require ${JSON.stringify(modulePath)};
+    echo json_encode(array('result'=>(new DHC_AI_Discovery())->validate_discovery_link('https://example.com/services/', true),'requested'=>$requested));
+  `;
+  const result = spawnSync('php', ['-r', script], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout);
+  assert.equal(value.requested.length, 1);
+  assert.equal(value.requested[0].url, 'https://example.com/services/');
+  assert.equal(value.requested[0].args.redirection, 0);
+  assert.equal(value.result.ok, false);
+  assert.equal(value.result.status, 302);
+
+  const methodStart = discovery.indexOf('public function validate_discovery_link');
+  const methodEnd = discovery.indexOf('private function build_discovery_links', methodStart);
+  const method = discovery.slice(methodStart, methodEnd);
+  assert.match(method, /wp_safe_remote_head\s*\(/);
+  assert.doesNotMatch(method, /(?<!safe_)wp_remote_head\s*\(/);
+  assert.match(method, /'redirection'\s*=>\s*0/);
 });
 
 test('upgrade regenerates discovery files and the AI Discovery tab contains the editor, preview, validation, and IndexNow control', () => {

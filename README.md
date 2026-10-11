@@ -133,7 +133,7 @@ The plugin integrates with WordPress's privacy policy page generator and include
 - **Form Capture** stores a bounded local review inbox containing the newest 250 submissions and sends clean lead records to the Hub
 - **AI Discovery** publishes only business information the site owner explicitly provides
 - Full privacy policy text is auto-suggested for the site's privacy policy page
-- WordPress personal-data export and erasure requests include matching local form inbox rows
+- WordPress personal-data export and erasure requests include exact-email matches from both the local form inbox and activity history
 
 ---
 

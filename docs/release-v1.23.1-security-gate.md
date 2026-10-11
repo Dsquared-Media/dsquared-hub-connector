@@ -23,6 +23,9 @@ The recovery commit imports that exact package on top of the current repository 
 - Route Content Decay and both Leads endpoints through initialized module instances.
 - Remove obsolete static route registrations that pointed at callbacks not supplied by 1.23.0.
 - Remove all local private and derived credentials during uninstall without attempting remote credential revocation.
+- Cover activity-history email/IP rows in privacy export and erasure and fail closed on inactive subscription collection.
+- Validate AI Discovery links without following redirect destinations.
+- Build one deterministic candidate ZIP and promote those exact reviewed bytes to a draft release.
 
 ## Preserved 1.23.0 capabilities
 
@@ -35,7 +38,7 @@ The recovery commit imports that exact package on top of the current repository 
 
 ## Automated verification
 
-- Node contract suite: 84 passed, 0 failed.
+- Node contract suite: the exact final revision must pass with zero failures; record the run instead of copying a stale fixed count here.
 - Containment PHP suite: passed.
 - Uninstall PHP suite: passed.
 - PHP syntax check: every plugin and test PHP file passed.
@@ -45,9 +48,11 @@ The recovery commit imports that exact package on top of the current repository 
 
 The source is not authorized for publication or installation merely because these checks pass. Before tagging or installing 1.23.1:
 
-1. Build the review ZIP from the exact final commit and record its SHA-256.
-2. Obtain independent Gate 3 review of that exact commit and package.
+1. Build the candidate ZIP from the exact final commit with `scripts/build-connector-package.sh`; record the commit, SHA-256, candidate workflow run, and manifest.
+2. Obtain independent Gate 3 review of that exact commit and exact candidate package.
 3. Install the exact ZIP in a disposable or backed-up local WordPress test site.
 4. Verify plugin activation and version, valid and invalid connector authentication, Content Decay, `/leads`, `/leads/stats`, telemetry containment, and preserved 1.23 admin screens.
-5. Obtain the owner's exact-SHA approval before merge, tag, publication, or production installation.
+5. Obtain the owner's exact-SHA and exact-package approval before merge, tag, publication, or production installation.
+6. Promote the already-reviewed candidate bytes into a draft GitHub release. The release workflow must verify the tag commit, candidate run, bundled checksum, and approved SHA-256; it must never rebuild or clobber the ZIP.
+7. Publish the populated draft only after final owner approval. Publishing the draft must not trigger any asset-writing workflow.
 

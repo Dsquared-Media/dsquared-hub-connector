@@ -7,8 +7,11 @@
 - Clear derived telemetry state when the connector key changes or the plugin is deactivated, while retaining the private key for intentional reactivation.
 - Repair the Content Decay and Leads REST routes by routing them through their initialized module instances.
 - Make the local form inbox truthful in privacy-policy, export, and erasure workflows while preserving its newest-250 review contract.
+- Include exact-email activity-history rows in WordPress privacy export and erasure, and stop new activity collection when the subscription is inactive.
 - Neutralize spreadsheet-formula prefixes in every connector CSV export, including historical stored rows.
 - Pin external GitHub Actions to reviewed immutable commit SHAs for reproducible security and release workflows.
+- Promote the exact reviewed connector ZIP into a draft release instead of rebuilding or clobbering package bytes at publication time.
+- Prevent AI Discovery URL validation from following redirect targets after the approved same-site URL check.
 - Preserve all 1.23.0 admin, form inbox, tracking script, schema, activity log, AI Discovery, and IndexNow capabilities.
 
 ## 1.23.0

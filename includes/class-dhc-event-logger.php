@@ -45,18 +45,89 @@ class DHC_Event_Logger {
         // Backwards compatibility with earlier two-argument calls where the
         // second argument was event data rather than a module name.
         if ( is_array( $module ) ) { $data = $module; $module = 'general'; }
+        if ( ! self::collection_allowed() ) {
+            return;
+        }
+
         // 1. Send to Hub
         self::send_to_hub( $event, $module, $data );
 
         // 2. Log locally
         if ( ! empty( $local_message ) ) {
-			self::activity( $event, $module, $local_message, self::is_hub_request() ? 'hub' : 'wordpress' );
+			self::log_local( $event, $module, $local_message, self::is_hub_request() ? 'hub' : 'wordpress', array() );
         }
     }
 
     /** Store one normalized, prepend-only activity row. */
     public static function activity( $event, $module, $message, $origin = 'wordpress', $actor = array() ) {
+        if ( ! self::collection_allowed() ) {
+            return;
+        }
         self::log_local( $event, $module, $message, $origin, is_array( $actor ) ? $actor : array() );
+    }
+
+    /** Return activity rows whose stored email exactly matches the request. */
+    public static function get_activity_for_email( $email_address ) {
+        $email_address = strtolower( sanitize_email( $email_address ) );
+        if ( '' === $email_address ) {
+            return array();
+        }
+
+        $matches = array();
+        $rows    = get_option( 'dhc_activity_log', array() );
+        if ( ! is_array( $rows ) ) {
+            return $matches;
+        }
+
+        foreach ( $rows as $index => $row ) {
+            if ( ! is_array( $row ) ) {
+                continue;
+            }
+            $stored = strtolower( sanitize_email( $row['email'] ?? '' ) );
+            if ( '' !== $stored && $stored === $email_address ) {
+                $row['_privacy_index'] = $index;
+                $matches[] = $row;
+            }
+        }
+        return $matches;
+    }
+
+    /** Remove every activity row whose stored email exactly matches the request. */
+    public static function erase_activity_for_email( $email_address ) {
+        $email_address = strtolower( sanitize_email( $email_address ) );
+        if ( '' === $email_address ) {
+            return 0;
+        }
+
+        $rows = get_option( 'dhc_activity_log', array() );
+        if ( ! is_array( $rows ) ) {
+            return 0;
+        }
+
+        $kept    = array();
+        $removed = 0;
+        foreach ( $rows as $row ) {
+            $stored = is_array( $row ) ? strtolower( sanitize_email( $row['email'] ?? '' ) ) : '';
+            if ( '' !== $stored && $stored === $email_address ) {
+                $removed++;
+                continue;
+            }
+            $kept[] = $row;
+        }
+
+        if ( $removed ) {
+            update_option( 'dhc_activity_log', $kept, false );
+        }
+        return $removed;
+    }
+
+    /** Fail closed unless the connector currently has an active subscription. */
+    private static function collection_allowed() {
+        if ( ! class_exists( 'DHC_API_Key' ) ) {
+            return false;
+        }
+        $subscription = DHC_API_Key::validate();
+        return is_array( $subscription ) && ! empty( $subscription['valid'] );
     }
 
     /**

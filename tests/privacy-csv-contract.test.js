@@ -42,6 +42,33 @@ test('external workflow actions are pinned to reviewed full commit SHAs', () => 
   }
 });
 
+test('review and release promote one exact candidate package without rebuilding or clobbering', () => {
+  const review = read('.github/workflows/connector-security.yml');
+  const release = read('.github/workflows/release.yml');
+  const builder = read('scripts/build-connector-package.sh');
+  const attributes = read('.gitattributes');
+
+  assert.match(review, /scripts\/build-connector-package\.sh/);
+  assert.match(review, /cmp .*dsquared-hub-connector\.zip/);
+  assert.match(review, /connector-candidate-/);
+  assert.match(builder, /git archive/);
+  assert.match(builder, /\^\[0-9a-f\]\{40\}\$/);
+  assert.match(builder, /Refusing to overwrite existing package file/);
+  for (const excluded of ['/tests export-ignore', '/.github export-ignore', '/docs export-ignore', '/scripts export-ignore']) {
+    assert.ok(attributes.includes(excluded), `${excluded} must stay outside the production ZIP`);
+  }
+
+  assert.match(release, /workflow_dispatch:/);
+  assert.match(release, /candidate_run_id:/);
+  assert.match(release, /gh run download/);
+  assert.match(release, /APPROVED_SHA256/);
+  assert.match(release, /--draft/);
+  assert.match(release, /refusing to replace or clobber assets/i);
+  assert.doesNotMatch(release, /push:\s*[\s\S]*?tags:/);
+  assert.doesNotMatch(release, /release:\s*[\s\S]*?published/);
+  assert.doesNotMatch(release, /\brsync\b|\bgit archive\b|\bzip\s+-|--clobber/);
+});
+
 test('runtime and documentation surfaces describe the bounded local form inbox', () => {
   const privacy = read('includes/class-dhc-privacy.php');
   const admin = read('includes/class-dhc-admin.php');
@@ -50,6 +77,10 @@ test('runtime and documentation surfaces describe the bounded local form inbox',
 
   assert.doesNotMatch(privacy, /NOT stored locally|does not store personal data locally/i);
   assert.match(privacy, /newest 250 clean and spam submissions/);
+  assert.match(privacy, /Activity history/);
+  assert.match(privacy, /form inbox and activity history rows/);
+  assert.match(privacy, /DHC_Event_Logger::get_activity_for_email/);
+  assert.match(privacy, /DHC_Event_Logger::erase_activity_for_email/);
   assert.match(admin, /bounded local review inbox/);
   assert.match(module, /bounded local review inbox/);
   assert.doesNotMatch(docs, /does not store form data locally|does not store personal data locally/i);

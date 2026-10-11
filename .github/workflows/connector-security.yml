@@ -31,13 +31,24 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Build review ZIP only (never a GitHub release)
+      - name: Resolve exact candidate commit
+        id: candidate
         run: |
-          git archive --format=zip --prefix=dsquared-hub-connector/ --output=dsquared-hub-connector.zip HEAD dsquared-hub-connector.php uninstall.php readme.txt README.md CHANGELOG.md LICENSE includes admin assets
-          sha256sum dsquared-hub-connector.zip > dsquared-hub-connector.zip.sha256
+          SHA="$(git rev-parse HEAD)"
+          test "${#SHA}" -eq 40
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - name: Build exact review package twice
+        run: |
+          first="$(mktemp -d)"
+          second="$(mktemp -d)"
+          bash scripts/build-connector-package.sh "${{ steps.candidate.outputs.sha }}" "$first"
+          bash scripts/build-connector-package.sh "${{ steps.candidate.outputs.sha }}" "$second"
+          cmp "$first/dsquared-hub-connector.zip" "$second/dsquared-hub-connector.zip"
+          cmp "$first/dsquared-hub-connector.zip.sha256" "$second/dsquared-hub-connector.zip.sha256"
+          mkdir candidate
+          cp "$first"/dsquared-hub-connector.zip* "$first"/dsquared-hub-connector.manifest.txt candidate/
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: connector-review-${{ github.event.pull_request.head.sha || github.sha }}
-          path: |
-            dsquared-hub-connector.zip
-            dsquared-hub-connector.zip.sha256
+          name: connector-candidate-${{ steps.candidate.outputs.sha }}
+          if-no-files-found: error
+          path: candidate/

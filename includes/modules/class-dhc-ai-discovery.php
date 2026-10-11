@@ -790,7 +790,7 @@ class DHC_AI_Discovery {
             return $result;
         }
 
-        $response = wp_remote_head( $url, array( 'timeout' => 8, 'redirection' => 3, 'user-agent' => 'DsquaredHubConnector/' . DHC_VERSION . ' (llms-link-validator)' ) );
+        $response = wp_safe_remote_head( $url, array( 'timeout' => 8, 'redirection' => 0, 'user-agent' => 'DsquaredHubConnector/' . DHC_VERSION . ' (llms-link-validator)' ) );
         if ( is_wp_error( $response ) ) {
             $result = array( 'ok' => false, 'status' => 0, 'noindex' => false, 'post_type' => $post_id ? (string) $post->post_type : 'page', 'message' => $response->get_error_message() );
         } else {

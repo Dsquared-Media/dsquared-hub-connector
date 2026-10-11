@@ -31,7 +31,7 @@ All features are subscription-gated via an API key. If your subscription lapses,
 
 This plugin collects anonymous Core Web Vitals performance data from your visitors to help you monitor site health. If Form Submission Capture is enabled, it stores a bounded local inbox of the newest 250 submissions for review and CSV export, filters spam, and forwards clean leads to the connected Hub account. The inbox can include the submitted contact fields, source URL, timestamp, and request IP address. Activity records are also bounded to 250 entries and never include the API key or full submitted form values.
 
-WordPress personal-data export and erasure requests can find and remove local form inbox rows by exact email address. Clean lead copies already forwarded to the connected Hub account must be handled through that account or its operator.
+WordPress personal-data export and erasure requests can find and remove exact-email matches from both the local form inbox and activity history. Clean lead copies already forwarded to the connected Hub account must be handled through that account or its operator.
 
 == Installation ==
 
