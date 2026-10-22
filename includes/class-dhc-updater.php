@@ -38,11 +38,10 @@ class DHC_Updater {
         add_action( 'upgrader_process_complete', array( __CLASS__, 'clear_cache' ), 10, 2 );
         add_filter( 'plugin_row_meta', array( __CLASS__, 'plugin_row_meta' ), 10, 2 );
 
-        // Enable auto-updates by default. WordPress normally makes the
-        // user click "Enable auto-updates" per-plugin. For a managed
-        // connector that's friction for no benefit — we just want new
-        // releases to land overnight. Site owners can still disable it
-        // from the Plugins screen if they have a reason to pin.
+        // Respect WordPress's existing per-plugin auto-update decision.
+        // The filter remains registered so the connector-specific hard-disable
+        // option can pin a site without overriding a false decision from Core,
+        // a hosting policy, or the Plugins screen.
         add_filter( 'auto_update_plugin', array( __CLASS__, 'enable_auto_update' ), 10, 2 );
 
         // Force the extracted source folder to our plugin slug on install.
@@ -202,13 +201,12 @@ class DHC_Updater {
     }
 
     /**
-     * Opt our plugin into auto-updates by default.
+     * Preserve WordPress's auto-update decision for the connector.
      *
      * Honors the dhc_disable_auto_update option so a site owner can
      * pin to a specific version (add_option('dhc_disable_auto_update',
-     * true)), and honors the wp-admin per-plugin toggle if the user
-     * has explicitly set it ("asked_for" list in WP core). In every
-     * other case — the default — we return true.
+     * true)). Otherwise the decision supplied by WordPress is returned
+     * unchanged, preserving the per-plugin toggle and hosting policies.
      *
      * @param bool|null $update The value the previous filter returned.
      * @param object    $item   The plugin item being checked.
@@ -224,7 +222,7 @@ class DHC_Updater {
         if ( get_option( 'dhc_disable_auto_update', false ) ) {
             return false;
         }
-        return true;
+        return $update;
     }
 
     /**
