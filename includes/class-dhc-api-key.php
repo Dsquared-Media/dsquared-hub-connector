@@ -11,6 +11,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class DHC_API_Key {
 
+    /** @var array Per-request validation results, keyed by site and key hash. */
+    private static $request_validation = array();
+
     /** @var string Transient key for caching subscription data */
     const CACHE_KEY = 'dhc_subscription_cache_site_bound_v1';
 
@@ -46,22 +49,45 @@ class DHC_API_Key {
             );
         }
 
+        $request_key = home_url( '/' ) . '|' . hash( 'sha256', $api_key );
+
+        // The core checks entitlement once per optional module. Remember the
+        // result for this PHP request so a Hub failure can never multiply one
+        // bounded refresh into several consecutive timeouts.
+        if ( ! $force && isset( self::$request_validation[ $request_key ] ) ) {
+            return self::$request_validation[ $request_key ];
+        }
+
         // Check cache first (unless forced)
         if ( ! $force ) {
             $cached = get_transient( self::CACHE_KEY );
             if ( false !== $cached && is_array( $cached )
                 && ( $cached['site_url'] ?? '' ) === home_url( '/' )
                 && ( $cached['key_hash'] ?? '' ) === hash( 'sha256', $api_key ) ) {
-                return $cached;
+                self::$request_validation[ $request_key ] = $cached;
+                return self::$request_validation[ $request_key ];
             }
         }
 
         // First, validate key format locally
         if ( ! self::validate_key_format( $api_key ) ) {
-            return array(
+            self::$request_validation[ $request_key ] = array(
                 'valid'   => false,
                 'message' => esc_html__( 'Invalid API key format. Keys should start with dhc_live_ or dhc_test_ followed by a 30–80 character body (letters, digits, - or _).', 'dsquared-hub-connector' ),
             );
+            return self::$request_validation[ $request_key ];
+        }
+
+        // Public page rendering must never wait for the Hub. Cached
+        // entitlements initialize modules immediately. When the cache is
+        // absent, a controlled context refreshes it while public rendering
+        // fails closed for connector modules and keeps the client site fast.
+        if ( ! $force && ! self::is_refresh_context() ) {
+            self::$request_validation[ $request_key ] = array(
+                'valid'   => false,
+                'message' => esc_html__( 'Connector verification is pending a background refresh. The website remains available.', 'dsquared-hub-connector' ),
+            );
+            return self::$request_validation[ $request_key ];
         }
 
         // Try Hub API validation
@@ -73,7 +99,7 @@ class DHC_API_Key {
                     'X-DHC-Site-Url' => home_url( '/' ),
                     'Content-Type'  => 'application/json',
                 ),
-                'timeout' => 10,
+                'timeout' => 3,
             )
         );
 
@@ -109,24 +135,54 @@ class DHC_API_Key {
                     'expires' => $subscription['expires'],
                 ) );
 
-                return $subscription;
+                self::$request_validation[ $request_key ] = $subscription;
+                return self::$request_validation[ $request_key ];
             }
 
             // API returned an explicit error (e.g. 403 invalid key)
             if ( 200 !== $code && ! empty( $body['message'] ) ) {
-                return array(
+                self::$request_validation[ $request_key ] = array(
                     'valid'   => false,
                     'message' => sanitize_text_field( $body['message'] ),
                 );
+                return self::$request_validation[ $request_key ];
             }
         }
 
         // A key cannot be accepted on its shape alone. A network failure may
         // be temporary, but it must not make another site's key look valid.
-        return array(
+        self::$request_validation[ $request_key ] = array(
             'valid'   => false,
             'message' => esc_html__( 'Could not verify this key for this WordPress URL. Check the Hub connection and try again; the saved key has not changed.', 'dsquared-hub-connector' ),
         );
+        return self::$request_validation[ $request_key ];
+    }
+
+    /**
+     * Whether this request may synchronously refresh Hub entitlement data.
+     *
+     * Privileged REST authentication passes $force and remains authoritative
+     * and fail-closed. Ordinary public traffic deliberately returns false.
+     *
+     * @return bool
+     */
+    private static function is_refresh_context() {
+        if ( defined( 'WP_CLI' ) && WP_CLI ) {
+            return true;
+        }
+
+        if ( function_exists( 'wp_doing_cron' ) && wp_doing_cron() ) {
+            return true;
+        }
+
+        if ( defined( 'DOING_CRON' ) && DOING_CRON ) {
+            return true;
+        }
+
+        return function_exists( 'is_admin' )
+            && is_admin()
+            && function_exists( 'current_user_can' )
+            && current_user_can( 'manage_options' );
     }
 
     /**

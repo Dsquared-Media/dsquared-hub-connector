@@ -75,7 +75,7 @@ check(!DHC_Heartbeat::maybe_provision_telemetry_token(),'late response for A rej
 $remote=fn()=>['code'=>200,'body'=>['telemetry_token'=>$tokenB]];
 check(DHC_Heartbeat::maybe_provision_telemetry_token(),'new B telemetry provisions'); render_public($tokenB);
 $remote=fn()=>['code'=>200,'body'=>['tier'=>'pro','site_id'=>'site-fixture']];
-check(DHC_API_Key::validate($keyB)['valid'],'warm subscription cache');
+check(DHC_API_Key::validate($keyB, true)['valid'],'warm subscription cache');
 $before=$remote_calls; $remote=fn()=>['code'=>403,'body'=>['message'=>'revoked']];
 $request=new class($keyB) { private $key; function __construct($k){$this->key=$k;} function get_header($n){return $this->key;} };
 check(is_wp_error(DHC_API_Key::authenticate_request($request)),'revoked key denied despite warm cache');
