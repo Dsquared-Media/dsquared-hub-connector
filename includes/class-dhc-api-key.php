@@ -49,12 +49,22 @@ class DHC_API_Key {
             );
         }
 
-        $request_key = home_url( '/' ) . '|' . hash( 'sha256', $api_key );
+        // Keep forced and cached lookups separate so a privileged request never
+        // reuses a passive cached decision. Within either mode, WordPress may
+        // invoke the same REST permission callback more than once while
+        // building the response (for example, for the Allow header), so reuse
+        // the first result for the remainder of this PHP request.
+        $request_base = home_url( '/' ) . '|' . hash( 'sha256', $api_key );
+        $request_key  = $request_base . '|' . ( $force ? 'force' : 'cached' );
 
         // The core checks entitlement once per optional module. Remember the
         // result for this PHP request so a Hub failure can never multiply one
         // bounded refresh into several consecutive timeouts.
-        if ( ! $force && isset( self::$request_validation[ $request_key ] ) ) {
+        if ( ! $force && isset( self::$request_validation[ $request_base . '|force' ] ) ) {
+            return self::$request_validation[ $request_base . '|force' ];
+        }
+
+        if ( isset( self::$request_validation[ $request_key ] ) ) {
             return self::$request_validation[ $request_key ];
         }
 

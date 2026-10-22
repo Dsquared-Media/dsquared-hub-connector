@@ -44,6 +44,14 @@ function wp_localize_script($handle,$name,$cfg) { $GLOBALS['public'].=json_encod
 function current_time($v) { return '2026-10-05'; }
 function flush_rewrite_rules(...$args) {}
 require __DIR__.'/../dsquared-hub-connector.php';
+function reset_api_key_request_cache() {
+    $reflection = new ReflectionClass( 'DHC_API_Key' );
+    $property = $reflection->getProperty( 'request_validation' );
+    if ( PHP_VERSION_ID < 80100 ) {
+        $property->setAccessible( true );
+    }
+    $property->setValue( null, array() );
+}
 $keyA='dhc_live_'.str_repeat('a',40); $keyB='dhc_live_'.str_repeat('b',40);
 $tokenA='dhct_'.str_repeat('a',40); $tokenB='dhct_'.str_repeat('b',40);
 function binding($token,$key) { return ['token'=>$token,'parent_hash'=>hash('sha256',$key),'site_url'=>home_url()]; }
@@ -78,10 +86,12 @@ $remote=fn()=>['code'=>200,'body'=>['tier'=>'pro','site_id'=>'site-fixture']];
 check(DHC_API_Key::validate($keyB, true)['valid'],'warm subscription cache');
 $before=$remote_calls; $remote=fn()=>['code'=>403,'body'=>['message'=>'revoked']];
 $request=new class($keyB) { private $key; function __construct($k){$this->key=$k;} function get_header($n){return $this->key;} };
+reset_api_key_request_cache();
 check(is_wp_error(DHC_API_Key::authenticate_request($request)),'revoked key denied despite warm cache');
 check($remote_calls===$before+1,'privileged auth actually called authoritative Hub');
-$remote=fn()=>new WP_Error(); check(is_wp_error(DHC_API_Key::authenticate_request($request)),'Hub outage fails closed');
+$remote=fn()=>new WP_Error(); reset_api_key_request_cache(); check(is_wp_error(DHC_API_Key::authenticate_request($request)),'Hub outage fails closed');
 $remote=fn()=>['code'=>200,'body'=>['tier'=>'pro','site_id'=>'site-fixture']];
+reset_api_key_request_cache();
 check(DHC_API_Key::authenticate_request($request)===true,'valid B privileged auth remains usable');
 update_option('dhc_api_key',$keyA); render_public('');
 check(get_transient(DHC_API_Key::CACHE_KEY)===false,'direct change invalidates cached validation');

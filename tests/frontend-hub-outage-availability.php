@@ -57,6 +57,8 @@ $remote = function () {
 };
 check( DHC_API_Key::validate( $options['dhc_api_key'], true )['valid'], 'forced validation succeeds' );
 check( 1 === $remote_calls, 'forced validation performs exactly one Hub request' );
+check( DHC_API_Key::validate( $options['dhc_api_key'], true )['valid'], 'repeated forced validation reuses this request result' );
+check( 1 === $remote_calls, 'repeated forced validation performs no duplicate Hub request' );
 foreach ( $modules as $module ) {
     check( DHC_API_Key::is_module_available( $module ), "cached {$module} remains available" );
 }
