@@ -4,7 +4,7 @@ Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.21.2
+Stable tag: 1.21.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,10 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.21.3 =
+* Keep public pages responsive when the Hub is unavailable by refreshing connector entitlement only in controlled background or administrator contexts.
+* Reuse one validation result per PHP request and bound controlled Hub refreshes to three seconds.
 
 = 1.21.2 =
 * Advertise the connector's exact supported REST routes in status and heartbeat payloads.

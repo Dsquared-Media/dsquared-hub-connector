@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.21.3
+
+- Remove synchronous Hub entitlement checks from public page rendering so a Hub outage cannot delay client websites.
+- Memoize entitlement validation for the lifetime of each PHP request and reduce controlled refresh timeouts to three seconds.
+- Keep privileged connector requests authoritative and fail-closed while allowing wp-admin, WP-Cron, and WP-CLI to refresh cached entitlement data.
+
 ## 1.21.2
 
 - Advertise the connector's exact supported REST routes in status and heartbeat payloads.
