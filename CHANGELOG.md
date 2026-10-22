@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.21.4
+
+- Preserve WordPress Core, hosting-policy, and administrator auto-update decisions instead of forcing the connector into automatic updates.
+- Retain the connector-specific hard-disable option for explicitly pinned sites.
+- Align the packaged WordPress compatibility metadata with the updater channel.
+
 ## 1.21.3
 
 - Remove synchronous Hub entitlement checks from public page rendering so a Hub outage cannot delay client websites.
