@@ -26,20 +26,6 @@ define( 'DHC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'DHC_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 define( 'DHC_HUB_API_BASE', 'https://hub.dsquaredmedia.net/api' );
 
-// ── SVG Support conflict protection ─────────────────────────────────
-// Some servers are missing the php-xml extension (DOMDocument class).
-// The SVG Support plugin crashes when it tries to sanitize SVGs without it.
-// We proactively disable its upload hooks during our plugin's lifecycle.
-if ( ! class_exists( 'DOMDocument' ) ) {
-    add_action( 'plugins_loaded', function() {
-        // Remove SVG Support's upload sanitization hooks that crash without DOMDocument
-        if ( function_exists( 'bodhi_svgs_sanitize_svg' ) ) {
-            remove_filter( 'wp_handle_upload_prefilter', 'bodhi_svgs_sanitize_svg' );
-            remove_filter( 'wp_handle_sideload_prefilter', 'bodhi_svgs_sanitize_svg' );
-        }
-    }, 0 ); // Priority 0 = run before everything else
-}
-
 // ── Compatibility checks ────────────────────────────────────────────
 if ( version_compare( PHP_VERSION, '7.4', '<' ) ) {
     add_action( 'admin_notices', function () {
