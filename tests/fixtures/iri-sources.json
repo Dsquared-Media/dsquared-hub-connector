@@ -1,0 +1,56 @@
+[
+  {
+    "file": "wp62-requests/Iri.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Iri.php",
+    "bytes": 29037,
+    "sha256": "b4b6c63147f2ebd47b2e37ef939099b18e82bbc3ea9dd3ae3bda699aabee5261"
+  },
+  {
+    "file": "wp62-requests/Ipv6.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Ipv6.php",
+    "bytes": 5639,
+    "sha256": "65c4713e71e21b36109fc8d50aceaac68dfc1e7abbad72e96dccb69fb82c5725"
+  },
+  {
+    "file": "wp62-requests/Port.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Port.php",
+    "bytes": 1505,
+    "sha256": "eab02dc614d84eb8e874ec743d1ede48cbac7df8f7841b664f6e97995e8d883c"
+  },
+  {
+    "file": "wp62-requests/Utility/InputValidator.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Utility/InputValidator.php",
+    "bytes": 2512,
+    "sha256": "ddbe22b3f5ed77f3dd522cac31404298cee44a61b9acc30d449c1edd0577c4e1"
+  },
+  {
+    "file": "wp62-requests/Exception.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Exception.php",
+    "bytes": 1114,
+    "sha256": "442a7f6f0c2f8b7b06149dc5f0aeba4eef946f84b7f2ad8907bb621d7d281066"
+  },
+  {
+    "file": "wp62-requests/Exception/InvalidArgument.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Exception/InvalidArgument.php",
+    "bytes": 1106,
+    "sha256": "e07fece0cd8cb70aaacb9f6aea251041cd5706a711122bf947c24242d780da3b"
+  },
+  {
+    "file": "wp58-requests/IRI.php",
+    "url": "https://core.svn.wordpress.org/tags/5.8/wp-includes/Requests/IRI.php",
+    "bytes": 28553,
+    "sha256": "15153af17f37b8cb226834919baa596a0fae1ee40656478f886d82dbaeac38c9"
+  },
+  {
+    "file": "wp58-requests/IPv6.php",
+    "url": "https://core.svn.wordpress.org/tags/5.8/wp-includes/Requests/IPv6.php",
+    "bytes": 5010,
+    "sha256": "c798f074cf343c0f5c86648b4838e2615e0a013db56f578c523484f7f9f12e57"
+  },
+  {
+    "file": "wp58-requests/Exception.php",
+    "url": "https://core.svn.wordpress.org/tags/5.8/wp-includes/Requests/Exception.php",
+    "bytes": 1027,
+    "sha256": "128dfb85265c03c0da4e95c7a5b070ffa5665961da63614a09c44a45bbf98877"
+  }
+]
