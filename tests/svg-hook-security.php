@@ -192,7 +192,9 @@ $fixture_transients[ DHC_Updater::CACHE_KEY ] = array( 'version' => '9.0.0', 'do
 $updated = apply_filters( 'pre_set_site_transient_update_plugins', $transient );
 verify_svg_hook( $updated->response[ DHC_PLUGIN_BASENAME ]->package === 'https://fixture.invalid/plugin.zip', 'cached update discovery and ZIP package preserved' );
 $item = (object) array( 'plugin' => DHC_PLUGIN_BASENAME );
-verify_svg_hook( true === apply_filters( 'auto_update_plugin', false, $item ), 'connector auto-update opt-in preserved' );
+verify_svg_hook( false === apply_filters( 'auto_update_plugin', false, $item ), 'WordPress disabled auto-update decision preserved' );
+verify_svg_hook( true === apply_filters( 'auto_update_plugin', true, $item ), 'WordPress enabled auto-update decision preserved' );
+verify_svg_hook( null === apply_filters( 'auto_update_plugin', null, $item ), 'WordPress undecided auto-update decision preserved' );
 $fixture_options['dhc_disable_auto_update'] = true;
 verify_svg_hook( false === apply_filters( 'auto_update_plugin', true, $item ), 'site owner auto-update opt-out preserved' );
 verify_svg_hook( false === apply_filters( 'auto_update_plugin', false, (object) array( 'plugin' => 'other/other.php' ) ), 'unrelated auto-update preference preserved' );

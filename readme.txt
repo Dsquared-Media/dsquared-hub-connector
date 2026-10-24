@@ -67,6 +67,8 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 == Changelog ==
 
 = 1.21.4 =
+* Preserve upload security filters while installing or updating the connector.
+* Bind link-scanner connections to the validated public destination and fail visibly on unsupported transports.
 * Preserve the existing WordPress, hosting-policy, or administrator decision for connector auto-updates instead of forcing disabled sites back on.
 * Keep the connector-specific hard-disable option available for explicitly pinned sites.
 

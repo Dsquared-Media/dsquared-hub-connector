@@ -2,6 +2,9 @@
 
 ## 1.21.4
 
+- Preserve WordPress and security-plugin upload/type checks during manual and automated connector updates.
+- Keep link-scanner connections bound to the validated public destination across redirects, proxies and supported WordPress HTTP transports. Unsupported transports fail visibly without an unvalidated fallback.
+- Build a reproducible review package without publishing a release or replacing previously approved assets.
 - Preserve WordPress Core, hosting-policy, and administrator auto-update decisions instead of forcing the connector into automatic updates.
 - Retain the connector-specific hard-disable option for explicitly pinned sites.
 - Align the packaged WordPress compatibility metadata with the updater channel.

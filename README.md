@@ -2,7 +2,7 @@
 
 **Connect your WordPress site to the Dsquared Media Hub** — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, make your business visible to AI search, detect stale content, and capture leads with built-in spam filtering. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
 
-![Version](https://img.shields.io/badge/version-1.21.1-5661FF)
+![Version](https://img.shields.io/badge/version-1.21.4-5661FF)
 ![WordPress](https://img.shields.io/badge/WordPress-5.8%2B-21759b)
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-777BB4)
 ![License](https://img.shields.io/badge/license-GPL--2.0-green)
@@ -122,6 +122,10 @@ The Form Capture module includes a multi-layer spam filter that runs before any 
 ## Auto-Updates
 
 The plugin includes a self-hosted auto-updater that checks GitHub releases first and falls back to `hub.dsquaredmedia.net`. Updates appear in the WordPress admin just like any other plugin. Release data is cached for six hours during normal checks and refreshed immediately when an administrator chooses **Check again**.
+
+Version 1.21.4 preserves the auto-update decision made by WordPress, the host, or the administrator. The `dhc_disable_auto_update` option still disables updates for explicitly pinned sites. Older installed versions can still force automatic updates, so publishing a new stable Latest is a fleet action, not a canary test.
+
+Maintainers: [release preparation and controlled rollout](docs/RELEASE.md) keeps review packaging separate from publication and retains the exact ZIP tested on the canary.
 
 ---
 
