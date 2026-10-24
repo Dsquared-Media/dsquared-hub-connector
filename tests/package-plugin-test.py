@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -128,6 +129,17 @@ class PackageTests(unittest.TestCase):
             self.assertNotIn("--clobber", source)
             self.assertNotIn("secrets.", source)
             self.assertIn("python3 scripts/package-plugin.py --commit", source)
+
+    def test_manual_guard_rejects_a_different_commit_before_checkout(self):
+        source = (REPO / ".github/workflows/release.yml").read_text()
+        guard = re.search(r"run: '([^'\n]+)'", source).group(1)
+        resolved = "a" * 40
+        for candidate, expected in ((resolved, 0), ("b" * 40, 1), ("HEAD", 1),
+                                    ("$(exit 42)", 1), (resolved + "\n", 1)):
+            with self.subTest(candidate=candidate):
+                result = subprocess.run(["bash", "-c", guard], timeout=5,
+                                        env={"CANDIDATE_SHA": candidate, "WORKFLOW_SHA": resolved})
+                self.assertEqual(result.returncode, expected)
 
 
 if __name__ == "__main__":
