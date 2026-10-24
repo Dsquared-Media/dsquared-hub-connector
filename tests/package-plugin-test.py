@@ -117,6 +117,9 @@ class PackageTests(unittest.TestCase):
         contract = (REPO / ".github/workflows/connector-security.yml").read_text()
         self.assertIn("workflow_dispatch:", release)
         self.assertEqual(contract.count("ref: ${{ github.event.pull_request.head.sha || github.sha }}"), 2)
+        self.assertIn('ref: ${{ github.sha }}', release)
+        self.assertNotIn('ref: ${{ inputs.', release)
+        self.assertIn('"$CANDIDATE_SHA" = "$WORKFLOW_SHA"', release)
         self.assertNotRegex(release, r"(?m)^  (push|release|pull_request_target):")
         for source in (release, contract):
             self.assertIn("contents: read", source)

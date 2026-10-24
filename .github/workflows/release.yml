@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: Exact 40-character candidate commit SHA
+        description: Expected exact SHA of the selected workflow branch
         required: true
         type: string
 
@@ -21,17 +21,18 @@ jobs:
       - name: Require an exact commit
         env:
           CANDIDATE_SHA: ${{ inputs.commit_sha }}
-        run: '[[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]'
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: '[[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ && "$CANDIDATE_SHA" = "$WORKFLOW_SHA" ]]'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Build immutable review package
         env:
-          CANDIDATE_SHA: ${{ inputs.commit_sha }}
+          CANDIDATE_SHA: ${{ github.sha }}
         run: python3 scripts/package-plugin.py --commit "$CANDIDATE_SHA" --output-dir build
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: connector-review-${{ inputs.commit_sha }}
+          name: connector-review-${{ github.sha }}
           path: build/*
           if-no-files-found: error
