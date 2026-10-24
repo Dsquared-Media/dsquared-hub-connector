@@ -1,68 +1,38 @@
-name: Build + attach plugin zip on release
+name: Prepare plugin release candidate (no publication)
 
-# Fires when a tag is pushed. Builds dsquared-hub-connector.zip with the
-# correct folder structure (root = dsquared-hub-connector/) and attaches
-# it to the GitHub release. Without this, users who download "Source
-# code (zip)" get an archive that extracts to a sha-suffixed folder,
-# breaking WordPress's plugin path and auto-deactivating the plugin on
-# every update.
-
+# Packaging must never publish Latest or replace the ZIP after canary approval.
+# An approved operator uploads the retained, verified artifact separately.
 on:
-  push:
-    tags:
-      - 'v*'
-  release:
-    types: [published]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Expected exact SHA of the selected workflow branch
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build-and-attach:
+  package:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Stage plugin files under dsquared-hub-connector/
-        run: |
-          mkdir -p build/dsquared-hub-connector
-          rsync -a \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='build' \
-            --exclude='*.zip' \
-            --exclude='.DS_Store' \
-            --exclude='node_modules' \
-            --exclude='tests' \
-            ./ build/dsquared-hub-connector/
-
-      - name: Create zip
-        working-directory: build
-        run: zip -rq dsquared-hub-connector.zip dsquared-hub-connector
-
-      - name: Resolve tag
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "name=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Upload as release asset
+      - name: Require an exact commit
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ steps.tag.outputs.name }}"
-          # If a release already exists for this tag, upload (clobbering any
-          # prior asset of the same name). Otherwise create a draft release
-          # against the tag and upload.
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" build/dsquared-hub-connector.zip --clobber
-          else
-            gh release create "$TAG" build/dsquared-hub-connector.zip \
-              --title "$TAG" \
-              --notes "Automated plugin zip build. See CHANGELOG.md for details."
-          fi
+          CANDIDATE_SHA: ${{ inputs.commit_sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: '[[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ && "$CANDIDATE_SHA" = "$WORKFLOW_SHA" ]]'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Build immutable review package
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: python3 scripts/package-plugin.py --commit "$CANDIDATE_SHA" --output-dir build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: connector-review-${{ github.sha }}
+          path: build/*
+          if-no-files-found: error

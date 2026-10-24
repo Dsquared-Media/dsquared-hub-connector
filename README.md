@@ -2,7 +2,7 @@
 
 **Connect your WordPress site to the Dsquared Media Hub** — auto-post drafts, inject schema markup, sync SEO meta, monitor site health, make your business visible to AI search, detect stale content, and capture leads with built-in spam filtering. All features are subscription-gated and will gracefully disable if your subscription lapses without affecting your website.
 
-![Version](https://img.shields.io/badge/version-1.21.1-5661FF)
+![Version](https://img.shields.io/badge/version-1.21.4-5661FF)
 ![WordPress](https://img.shields.io/badge/WordPress-5.8%2B-21759b)
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-777BB4)
 ![License](https://img.shields.io/badge/license-GPL--2.0-green)
@@ -123,6 +123,10 @@ The Form Capture module includes a multi-layer spam filter that runs before any 
 
 The plugin includes a self-hosted auto-updater that checks GitHub releases first and falls back to `hub.dsquaredmedia.net`. Updates appear in the WordPress admin just like any other plugin. Release data is cached for six hours during normal checks and refreshed immediately when an administrator chooses **Check again**.
 
+Version 1.21.4 preserves the auto-update decision made by WordPress, the host, or the administrator. The `dhc_disable_auto_update` option still disables updates for explicitly pinned sites. Older installed versions can still force automatic updates, so publishing a new stable Latest is a fleet action, not a canary test.
+
+Maintainers: [release preparation and controlled rollout](docs/RELEASE.md) keeps review packaging separate from publication and retains the exact ZIP tested on the canary.
+
 ---
 
 ## Privacy
@@ -184,6 +188,14 @@ dsquared-hub-connector/
 ---
 
 ## Requirements
+
+### Link scanner connection compatibility
+
+The link scanner admits public destinations before each request and binds the connection to those numeric addresses. HTTPS still verifies the original hostname or IP certificate identity. The scanner uses WordPress's selected cURL or streams transport and its proxy/bypass policy; unsupported connection capabilities are recorded as unavailable, with no unchecked hostname retry.
+
+cURL requires working `CURLOPT_CONNECT_TO` support (libcurl 7.49+). Configured proxies must allow numeric CONNECT, including plain HTTP links. On PHP below 8.3, streams cannot verify HTTPS IPv6-literal certificate identities, so that specific case returns `dhc_scan_ipv6_tls_unsupported` before opening a socket. Hostnames resolving to IPv6, HTTP IPv6 literals, cURL and capable newer streams remain supported. The plugin's minimum versions below are unchanged.
+
+The status-only scanner retains at most 1,024 response body bytes on cURL; this is not a limit on total transferred bytes. Timeout controls and bounded redirects remain in place. Test details are in `tests/fixtures/README.md`.
 
 - WordPress 5.8 or higher
 - PHP 7.4 or higher

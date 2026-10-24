@@ -4,9 +4,7 @@
  *
  * Checks GitHub releases for new plugin versions and integrates
  * with WordPress's native update system. Users see update notifications
- * in the admin just like any other plugin. Also temporarily disables
- * SVG Support plugin hooks during plugin installation to prevent
- * DOMDocument crashes on servers missing php-xml.
+ * in the admin just like any other plugin.
  *
  * @package Dsquared_Hub_Connector
  * @since   1.5.0
@@ -40,11 +38,10 @@ class DHC_Updater {
         add_action( 'upgrader_process_complete', array( __CLASS__, 'clear_cache' ), 10, 2 );
         add_filter( 'plugin_row_meta', array( __CLASS__, 'plugin_row_meta' ), 10, 2 );
 
-        // Enable auto-updates by default. WordPress normally makes the
-        // user click "Enable auto-updates" per-plugin. For a managed
-        // connector that's friction for no benefit — we just want new
-        // releases to land overnight. Site owners can still disable it
-        // from the Plugins screen if they have a reason to pin.
+        // Respect WordPress's existing per-plugin auto-update decision.
+        // The filter remains registered so the connector-specific hard-disable
+        // option can pin a site without overriding a false decision from Core,
+        // a hosting policy, or the Plugins screen.
         add_filter( 'auto_update_plugin', array( __CLASS__, 'enable_auto_update' ), 10, 2 );
 
         // Force the extracted source folder to our plugin slug on install.
@@ -56,13 +53,6 @@ class DHC_Updater {
         // before WP moves it into place makes every update land correctly,
         // no matter which zip was downloaded.
         add_filter( 'upgrader_source_selection', array( __CLASS__, 'fix_source_dir' ), 10, 4 );
-
-        // SVG Support conflict protection: disable SVG sanitization during plugin installs/updates
-        add_action( 'upgrader_pre_install', array( __CLASS__, 'disable_svg_support_on_install' ), 1, 2 );
-        add_action( 'upgrader_post_install', array( __CLASS__, 'restore_svg_support_after_install' ), 99, 3 );
-
-        // Also hook into the upload process itself
-        add_filter( 'wp_handle_upload_prefilter', array( __CLASS__, 'protect_plugin_upload' ), 1 );
 
         // WordPress's "Check again" action clears its own update cache, but
         // it does not know about our separate release-data transient. Clear
@@ -211,13 +201,12 @@ class DHC_Updater {
     }
 
     /**
-     * Opt our plugin into auto-updates by default.
+     * Preserve WordPress's auto-update decision for the connector.
      *
      * Honors the dhc_disable_auto_update option so a site owner can
      * pin to a specific version (add_option('dhc_disable_auto_update',
-     * true)), and honors the wp-admin per-plugin toggle if the user
-     * has explicitly set it ("asked_for" list in WP core). In every
-     * other case — the default — we return true.
+     * true)). Otherwise the decision supplied by WordPress is returned
+     * unchanged, preserving the per-plugin toggle and hosting policies.
      *
      * @param bool|null $update The value the previous filter returned.
      * @param object    $item   The plugin item being checked.
@@ -233,7 +222,7 @@ class DHC_Updater {
         if ( get_option( 'dhc_disable_auto_update', false ) ) {
             return false;
         }
-        return true;
+        return $update;
     }
 
     /**
@@ -279,101 +268,6 @@ class DHC_Updater {
         // If the move failed, return the original so the install can still
         // proceed (worst case = the old behavior, never worse).
         return $source;
-    }
-
-    /**
-     * Temporarily disable SVG Support plugin hooks during plugin installation
-     * This prevents DOMDocument crashes on servers missing php-xml
-     */
-    public static function disable_svg_support_on_install( $response, $hook_extra ) {
-        self::toggle_svg_support( false );
-        return $response;
-    }
-
-    /**
-     * Re-enable SVG Support plugin hooks after plugin installation
-     */
-    public static function restore_svg_support_after_install( $response, $hook_extra, $result ) {
-        self::toggle_svg_support( true );
-        return $response;
-    }
-
-    /**
-     * Protect plugin ZIP uploads from SVG Support interference
-     */
-    public static function protect_plugin_upload( $file ) {
-        // If this is a plugin upload (ZIP file), temporarily disable SVG Support
-        if ( isset( $file['type'] ) && in_array( $file['type'], array( 'application/zip', 'application/x-zip-compressed', 'application/octet-stream' ), true ) ) {
-            self::toggle_svg_support( false );
-            // Re-enable after upload completes
-            add_action( 'shutdown', array( __CLASS__, 'restore_svg_on_shutdown' ) );
-        }
-        return $file;
-    }
-
-    /**
-     * Restore SVG Support on shutdown (safety net)
-     */
-    public static function restore_svg_on_shutdown() {
-        self::toggle_svg_support( true );
-    }
-
-    /**
-     * Toggle SVG Support plugin's sanitization hooks on/off
-     *
-     * @param bool $enable True to enable, false to disable
-     */
-    private static function toggle_svg_support( $enable ) {
-        // Target the SVG Support plugin's sanitization filter
-        $hooks_to_toggle = array(
-            array( 'wp_handle_upload_prefilter', 'bodhi_svgs_sanitize_svg' ),
-            array( 'wp_handle_sideload_prefilter', 'bodhi_svgs_sanitize_svg' ),
-            array( 'wp_check_filetype_and_ext', 'bodhi_svgs_allow_svg_upload' ),
-        );
-
-        foreach ( $hooks_to_toggle as $hook_info ) {
-            $tag      = $hook_info[0];
-            $function = $hook_info[1];
-
-            if ( $enable ) {
-                // We can't easily re-add with the original priority, so we skip re-enabling
-                // The hooks will be restored on next page load anyway
-            } else {
-                // Remove the problematic hooks
-                if ( function_exists( $function ) ) {
-                    remove_all_filters( $tag );
-                }
-            }
-        }
-
-        // Also try to remove the class-based hooks from newer SVG Support versions
-        if ( ! $enable ) {
-            global $wp_filter;
-            $tags_to_clean = array(
-                'wp_handle_upload_prefilter',
-                'wp_handle_sideload_prefilter',
-                'wp_handle_upload',
-            );
-            foreach ( $tags_to_clean as $tag ) {
-                if ( isset( $wp_filter[ $tag ] ) ) {
-                    foreach ( $wp_filter[ $tag ]->callbacks as $priority => $callbacks ) {
-                        foreach ( $callbacks as $key => $callback ) {
-                            $func = $callback['function'];
-                            $func_name = '';
-                            if ( is_string( $func ) ) {
-                                $func_name = $func;
-                            } elseif ( is_array( $func ) && isset( $func[1] ) ) {
-                                $func_name = is_string( $func[1] ) ? $func[1] : '';
-                            }
-                            // Remove any SVG-related sanitization hooks
-                            if ( stripos( $func_name, 'svg' ) !== false || stripos( $func_name, 'sanitize_svg' ) !== false ) {
-                                unset( $wp_filter[ $tag ]->callbacks[ $priority ][ $key ] );
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     /**

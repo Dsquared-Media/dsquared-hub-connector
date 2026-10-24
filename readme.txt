@@ -2,9 +2,9 @@
 Contributors: dsquaredmedia
 Tags: seo, schema, core web vitals, auto post, ai discovery
 Requires at least: 5.8
-Tested up to: 6.5
+Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.21.3
+Stable tag: 1.21.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,12 @@ The Form Submission Capture module currently supports Contact Form 7, Gravity Fo
 4. The Activity Log showing recent actions pushed from the Hub.
 
 == Changelog ==
+
+= 1.21.4 =
+* Preserve upload security filters while installing or updating the connector.
+* Bind link-scanner connections to the validated public destination and fail visibly on unsupported transports.
+* Preserve the existing WordPress, hosting-policy, or administrator decision for connector auto-updates instead of forcing disabled sites back on.
+* Keep the connector-specific hard-disable option available for explicitly pinned sites.
 
 = 1.21.3 =
 * Keep public pages responsive when the Hub is unavailable by refreshing connector entitlement only in controlled background or administrator contexts.

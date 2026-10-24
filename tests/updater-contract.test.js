@@ -25,6 +25,35 @@ test('release discovery uses the canonical repository path', () => {
     assert.doesNotMatch(updater, /repos\/dsquaredmedia\/dsquared-hub-connector/);
 });
 
+test('connector auto-update filter preserves WordPress decisions and honors the hard-disable option', () => {
+    const updaterPath = path.join(root, 'includes/class-dhc-updater.php');
+    const php = `
+        define('ABSPATH', __DIR__);
+        define('DHC_PLUGIN_BASENAME', 'dsquared-hub-connector/dsquared-hub-connector.php');
+        $GLOBALS['options'] = array();
+        function get_option($key, $default = false) { return array_key_exists($key, $GLOBALS['options']) ? $GLOBALS['options'][$key] : $default; }
+        require ${JSON.stringify(updaterPath)};
+        $connector = (object) array('plugin' => DHC_PLUGIN_BASENAME);
+        $other = (object) array('plugin' => 'other/other.php');
+        $results = array(
+            'connector_disabled_by_wordpress' => DHC_Updater::enable_auto_update(false, $connector),
+            'connector_enabled_by_wordpress' => DHC_Updater::enable_auto_update(true, $connector),
+            'other_plugin_passthrough' => DHC_Updater::enable_auto_update(false, $other),
+        );
+        $GLOBALS['options']['dhc_disable_auto_update'] = true;
+        $results['connector_hard_disabled'] = DHC_Updater::enable_auto_update(true, $connector);
+        echo json_encode($results);
+    `;
+
+    const result = JSON.parse(execFileSync('php', ['-r', php], { encoding: 'utf8' }));
+    assert.deepEqual(result, {
+        connector_disabled_by_wordpress: false,
+        connector_enabled_by_wordpress: true,
+        other_plugin_passthrough: false,
+        connector_hard_disabled: false,
+    });
+});
+
 test('forced-check hook runs at priority 1 and only capable users clear the cache', () => {
     const updaterPath = path.join(root, 'includes/class-dhc-updater.php');
     const php = `
