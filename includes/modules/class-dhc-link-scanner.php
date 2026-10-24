@@ -295,26 +295,160 @@ class DHC_Link_Scanner {
 
     /** HEAD-ping a URL, fallback to GET if HEAD returns 405. Returns numeric status code or 0 on connect failure. */
     private static function check_url( $url ) {
-        $res = wp_remote_head( $url, array(
-            'timeout'     => self::SCAN_TIMEOUT,
-            'redirection' => 5,
-            'sslverify'   => false,
-            'user-agent'  => 'DsquaredHubBot/1.0 (+https://hub.dsquaredmedia.net)',
-        ) );
-        if ( is_wp_error( $res ) ) return 0;
-        $code = (int) wp_remote_retrieve_response_code( $res );
+        $code = static::request_status( $url, 'HEAD' );
         // Some servers reject HEAD with 405 / 501 — retry with GET
         if ( $code === 405 || $code === 501 ) {
-            $res = wp_remote_get( $url, array(
-                'timeout'     => self::SCAN_TIMEOUT,
-                'redirection' => 5,
-                'sslverify'   => false,
-                'user-agent'  => 'DsquaredHubBot/1.0 (+https://hub.dsquaredmedia.net)',
-            ) );
-            if ( is_wp_error( $res ) ) return 0;
-            $code = (int) wp_remote_retrieve_response_code( $res );
+            $code = static::request_status( $url, 'GET' );
         }
         return $code;
+    }
+
+    /** Recheck every redirect ourselves: supported older WP validators are weaker. */
+    private static function request_status( $url, $method ) {
+        for ( $redirects = 0; $redirects <= 5; $redirects++ ) {
+            if ( ! static::is_public_url( $url ) ) return 0;
+            $args = array(
+                'timeout'     => self::SCAN_TIMEOUT,
+                'redirection' => 0,
+                'sslverify'   => true,
+                'limit_response_size' => 1024,
+                'user-agent'  => 'DsquaredHubBot/1.0 (+https://hub.dsquaredmedia.net)',
+            );
+            $res = 'HEAD' === $method ? wp_safe_remote_head( $url, $args ) : wp_safe_remote_get( $url, $args );
+            if ( is_wp_error( $res ) ) return 0;
+            $code = (int) wp_remote_retrieve_response_code( $res );
+            if ( ! in_array( $code, array( 300, 301, 302, 303, 307, 308 ), true ) ) return $code;
+            $location = wp_remote_retrieve_header( $res, 'location' );
+            if ( '' === $location ) return $code;
+            if ( ! is_string( $location ) || $redirects === 5
+                || preg_match( '/[\x00-\x20\x7f\\\\]/', $location ) ) return 0;
+            $parts = parse_url( $location );
+            if ( false === $parts || isset( $parts['user'] ) || isset( $parts['pass'] ) ) return 0;
+            // Use the same IRI resolution as native Requests on each supported
+            // WordPress generation, including host-only and query-only targets.
+            $iri_class = class_exists( 'WpOrg\\Requests\\Iri' ) ? 'WpOrg\\Requests\\Iri' : 'Requests_IRI';
+            if ( ! class_exists( $iri_class ) ) return 0;
+            try {
+                $absolute = $iri_class::absolutize( $url, $location );
+                if ( false === $absolute || ! is_string( $absolute->uri ) ) return 0;
+                $url = $absolute->uri;
+            } catch ( Throwable $error ) {
+                return 0;
+            }
+            // Match the supported WordPress/Requests redirect method behavior.
+            if ( 302 === $code || 303 === $code ) $method = 'GET';
+        }
+        return 0;
+    }
+
+    /**
+     * Scanner-local admission policy, independent of WP's same-home exceptions.
+     * DNS is a preflight only: the native HTTP transport resolves again. This
+     * does not pin an address or close DNS rebinding/proxy-resolution races.
+     */
+    private static function is_public_url( $url ) {
+        if ( ! is_string( $url ) || '' === $url || preg_match( '/[\x00-\x20\x7f\\\\]/', $url ) ) return false;
+        $parts = parse_url( $url );
+        if ( false === $parts || empty( $parts['host'] ) || empty( $parts['scheme'] )
+            || ! in_array( strtolower( $parts['scheme'] ), array( 'http', 'https' ), true )
+            || isset( $parts['user'] ) || isset( $parts['pass'] )
+            || ( isset( $parts['port'] ) && ! in_array( $parts['port'], array( 80, 443, 8080 ), true ) ) ) return false;
+
+        $host = strtolower( $parts['host'] );
+        if ( '[' === $host[0] && ']' === substr( $host, -1 ) ) {
+            $address = substr( $host, 1, -1 );
+            return filter_var( $address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) && self::is_public_address( $address );
+        }
+        if ( filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ) return self::is_public_address( $host );
+        // Reject abbreviated, integer, octal, hex and encoded IP spellings.
+        // Do not let a resolver/transport reinterpret these as a different host.
+        if ( preg_match( '/\A(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+))*\.?\z/i', $host ) ) return false;
+        $host = rtrim( $host, '.' );
+        if ( ! self::is_dns_hostname( $host ) ) return false;
+        $addresses = static::resolve_host_addresses( $host );
+        if ( ! is_array( $addresses ) || empty( $addresses ) ) return false;
+        foreach ( $addresses as $address ) {
+            if ( ! self::is_public_address( $address ) ) return false;
+        }
+        return true;
+    }
+
+    private static function is_dns_hostname( $host ) {
+        if ( ! is_string( $host ) || strlen( $host ) > 253 || false === strpos( $host, '.' ) ) return false;
+        foreach ( explode( '.', $host ) as $label ) {
+            if ( ! preg_match( '/\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z/', $label ) ) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Resolve both address families and bounded CNAME chains. PHP's typed DNS
+     * query does not itself chase alias-only replies. Resolver errors fail
+     * closed; there is no unchecked OS-resolution fallback.
+     */
+    protected static function resolve_host_addresses( $host ) {
+        $pending = array( $host );
+        $seen = array();
+        $addresses = array();
+        while ( ! empty( $pending ) ) {
+            $name = array_shift( $pending );
+            if ( isset( $seen[$name] ) ) continue;
+            if ( count( $seen ) >= 8 || ! self::is_dns_hostname( $name ) ) return array();
+            $seen[$name] = true;
+            $records = static::query_host_records( $name );
+            if ( ! is_array( $records ) || empty( $records ) ) return array();
+            foreach ( $records as $record ) {
+                if ( ! is_array( $record ) ) return array();
+                if ( 'A' === ( $record['type'] ?? '' ) ) $addresses[] = $record['ip'] ?? '';
+                if ( 'AAAA' === ( $record['type'] ?? '' ) ) $addresses[] = $record['ipv6'] ?? '';
+                if ( 'CNAME' === ( $record['type'] ?? '' ) ) {
+                    if ( ! isset( $record['target'] ) || ! is_string( $record['target'] ) ) return array();
+                    $target = strtolower( rtrim( $record['target'], '.' ) );
+                    if ( ! self::is_dns_hostname( $target ) ) return array();
+                    $pending[] = $target;
+                }
+            }
+        }
+        return array_values( array_unique( $addresses, SORT_REGULAR ) );
+    }
+
+    /** Protected only to permit deterministic offline resolver fixtures. */
+    protected static function query_host_records( $host ) {
+        if ( ! function_exists( 'dns_get_record' ) ) return false;
+        return @dns_get_record( $host, DNS_A | DNS_AAAA | DNS_CNAME );
+    }
+
+    /** Conservative public-unicast policy including ranges older WP omitted. */
+    private static function is_public_address( $address ) {
+        if ( ! is_string( $address ) || ! filter_var( $address, FILTER_VALIDATE_IP ) ) return false;
+        $packed = inet_pton( $address );
+        if ( 4 === strlen( $packed ) ) {
+            $blocked = array(
+                '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8',
+                '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24', '192.0.2.0/24',
+                '192.88.99.0/24', '192.168.0.0/16', '198.18.0.0/15',
+                '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/4', '240.0.0.0/4',
+            );
+        } else {
+            // Exclude mapped/translation/local/multicast addresses by accepting
+            // only current global-unicast space, then remove special prefixes.
+            if ( ! self::address_in_range( $packed, '2000::/3' ) ) return false;
+            $blocked = array( '2001::/23', '2001:db8::/32', '2002::/16', '3fff::/20' );
+        }
+        foreach ( $blocked as $range ) if ( self::address_in_range( $packed, $range ) ) return false;
+        return true;
+    }
+
+    private static function address_in_range( $packed, $range ) {
+        list( $network, $prefix ) = explode( '/', $range );
+        $network = inet_pton( $network );
+        if ( strlen( $packed ) !== strlen( $network ) ) return false;
+        $bytes = intdiv( (int) $prefix, 8 );
+        if ( substr( $packed, 0, $bytes ) !== substr( $network, 0, $bytes ) ) return false;
+        $bits = (int) $prefix % 8;
+        if ( 0 === $bits ) return true;
+        $mask = ( 0xff << ( 8 - $bits ) ) & 0xff;
+        return ( ord( $packed[$bytes] ) & $mask ) === ( ord( $network[$bytes] ) & $mask );
     }
 
     public static function get_broken_links( $limit = 100 ) {
