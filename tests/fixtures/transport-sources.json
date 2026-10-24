@@ -1,0 +1,364 @@
+[
+  {
+    "file": "wp58-http/LICENSE.txt",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/license.txt",
+    "bytes": 19915,
+    "sha256": "13f7d4f95d29d550093a8c89ac4fd1e463e9f2134a24a43ef6f614f35ce4f2c3",
+    "github_blob_sha": "0fd3b4f5eadc1af484fb39e3d08ddd8967825181"
+  },
+  {
+    "file": "wp58-http/class-http.php",
+    "url": "https://core.svn.wordpress.org/tags/5.8/wp-includes/class-http.php",
+    "bytes": 39710,
+    "sha256": "a56af94ec575d3c924c0cc8ecdfcae853fd49219e77a34043b7e252fe4d8a37a"
+  },
+  {
+    "file": "wp58-http/class-wp-http-proxy.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/class-wp-http-proxy.php",
+    "bytes": 5863,
+    "sha256": "d00dfe3d7325ba760b72ff6bd40be9a9d5214099ff3328c752cbd7a549305cf1",
+    "github_blob_sha": "0f7d96fb8c50fbfb27fea3db582a084b54efe690"
+  },
+  {
+    "file": "wp58-http/class-wp-http-requests-hooks.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/class-wp-http-requests-hooks.php",
+    "bytes": 1981,
+    "sha256": "d472514545f1700e7bdc33a45b44771a5073f39cff674e50af7a6aa5fd6c1b1b",
+    "github_blob_sha": "e9177d5602d43426ce6d408f54bdaa5e931e85c2"
+  },
+  {
+    "file": "wp58-requests/Auth.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Auth.php",
+    "bytes": 810,
+    "sha256": "f53bb4dc9cb5c6cfb3dc010fe6fae714abfe86af481d5f41bcc4e03825a7c8aa",
+    "github_blob_sha": "914c7449ca60143c998a5173001f283e0a6deaa2"
+  },
+  {
+    "file": "wp58-requests/Auth/Basic.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Auth/Basic.php",
+    "bytes": 1939,
+    "sha256": "f45189ed33ff7c682be1ca64c6dda34b2ae4a1c6e3fd03c959a2afde27e71e7e",
+    "github_blob_sha": "68d15bd5db2a6534f1d1021fd663fe1908e352d4"
+  },
+  {
+    "file": "wp58-requests/Cookie.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Cookie.php",
+    "bytes": 13033,
+    "sha256": "6e25307bc7f97cabf1dc6f6e09490550eebcf91afb72f759177941ee67170445",
+    "github_blob_sha": "7dd5b6822d34720129867637b41f9d7041570d4a"
+  },
+  {
+    "file": "wp58-requests/Cookie/Jar.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Cookie/Jar.php",
+    "bytes": 3865,
+    "sha256": "59a846b71af772af931bae6391d62e12606d0139e8f0887540e5b30e66abfe88",
+    "github_blob_sha": "a816f90a0ae7f5f41a1d9ad71e32f78529dd4250"
+  },
+  {
+    "file": "wp58-requests/Exception.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Exception.php",
+    "bytes": 1027,
+    "sha256": "128dfb85265c03c0da4e95c7a5b070ffa5665961da63614a09c44a45bbf98877",
+    "github_blob_sha": "1080efd971e7a7c78ed9410e937343fb3f5574bd"
+  },
+  {
+    "file": "wp58-requests/Hooker.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Hooker.php",
+    "bytes": 709,
+    "sha256": "0200e0511bf1e035b32937ec8088eb0c31a0ed2a2d2b2cbebd0fe0601308001e",
+    "github_blob_sha": "c852931f1a8594775daeba64dd34364bd73b4d30"
+  },
+  {
+    "file": "wp58-requests/Hooks.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Hooks.php",
+    "bytes": 1400,
+    "sha256": "0b195d02e09fee2bdf209e7a53941b6704c2dd9f91be3dc01eb5261fea3e4013",
+    "github_blob_sha": "f857902cedd1c5e512ea734004e2602968623fda"
+  },
+  {
+    "file": "wp58-requests/IDNAEncoder.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/IDNAEncoder.php",
+    "bytes": 11547,
+    "sha256": "b01c5a595eefafeb7f8d68b78d630dd1ca457b1f0b81cd496cf0be6bdd8ae2b5",
+    "github_blob_sha": "881142935b48ce9919bbfee8ffd29bf655381df1"
+  },
+  {
+    "file": "wp58-requests/IPv6.php",
+    "url": "https://core.svn.wordpress.org/tags/5.8/wp-includes/Requests/IPv6.php",
+    "bytes": 5010,
+    "sha256": "c798f074cf343c0f5c86648b4838e2615e0a013db56f578c523484f7f9f12e57"
+  },
+  {
+    "file": "wp58-requests/IRI.php",
+    "url": "https://core.svn.wordpress.org/tags/5.8/wp-includes/Requests/IRI.php",
+    "bytes": 28553,
+    "sha256": "15153af17f37b8cb226834919baa596a0fae1ee40656478f886d82dbaeac38c9"
+  },
+  {
+    "file": "wp58-requests/LICENSE",
+    "url": "https://raw.githubusercontent.com/WordPress/Requests/v1.8.1/LICENSE",
+    "bytes": 2359,
+    "sha256": "c08c66f8037c23f20614b58c0cbab6bbacef833dfa9c6a3a00ad3dc3344c2040",
+    "github_blob_sha": "d61ae7b14f39b4d353e914e75cd2983ba50af62c"
+  },
+  {
+    "file": "wp58-requests/Proxy.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Proxy.php",
+    "bytes": 813,
+    "sha256": "212ee2921c7854fc1ca27be3cf905942469d2df210c2e606bb9146bd40a7dea4",
+    "github_blob_sha": "0a798dbe9e74198af7c0040c56c4b278317979bb"
+  },
+  {
+    "file": "wp58-requests/Proxy/HTTP.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Proxy/HTTP.php",
+    "bytes": 3488,
+    "sha256": "feb20079205a2ee0d6caef71f667a18ef931ebfa483a5c7ef3972255c73aa31d",
+    "github_blob_sha": "25bb95a94a6479875e6f36674f221c0f4bfcfc50"
+  },
+  {
+    "file": "wp58-requests/Requests.php",
+    "url": "https://core.svn.wordpress.org/tags/5.8/wp-includes/class-requests.php",
+    "bytes": 30431,
+    "sha256": "8aad340f7be64eed0ed91b0a6d5600e1cf75465776e80330b50afb97d7c0bc16"
+  },
+  {
+    "file": "wp58-requests/Response.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Response.php",
+    "bytes": 2515,
+    "sha256": "f90e59cafbe1186617c6d0665622c3402485b5bb62e651beffd4909bdd2b0cbb",
+    "github_blob_sha": "20861dfb820529ab0155649d808ded35a2c681d2"
+  },
+  {
+    "file": "wp58-requests/Response/Headers.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Response/Headers.php",
+    "bytes": 2135,
+    "sha256": "0a7d5904320e9d7e1f53d97163c7604e9d0dc6448bd284f74c3efc1d7328ae4c",
+    "github_blob_sha": "12db128ae5df817a06c495ffcbeb39b19f486883"
+  },
+  {
+    "file": "wp58-requests/SSL.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/SSL.php",
+    "bytes": 3814,
+    "sha256": "847d76ada42f38bc353ac2a72e2ba374b87f8761b6d8b833d507bf73b3f54b4c",
+    "github_blob_sha": "f7ecf3fbdba9e824ae067b98296052e5858c82b8"
+  },
+  {
+    "file": "wp58-requests/Transport.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Transport.php",
+    "bytes": 1221,
+    "sha256": "7748353cb74fee8d7f1eeca5bbb7544cfed0f8e95816c8c540854a5b41633e04",
+    "github_blob_sha": "5146c01d87fafeac61f4f8c64f903a8c165b586d"
+  },
+  {
+    "file": "wp58-requests/Transport/cURL.php",
+    "url": "https://core.svn.wordpress.org/tags/5.8/wp-includes/Requests/Transport/cURL.php",
+    "bytes": 17086,
+    "sha256": "97b1bf4c708e2dbba5f367089de623b6884551f9b32b0581ba9d79e7b7865bd4"
+  },
+  {
+    "file": "wp58-requests/Transport/fsockopen.php",
+    "url": "https://core.svn.wordpress.org/tags/5.8/wp-includes/Requests/Transport/fsockopen.php",
+    "bytes": 13004,
+    "sha256": "d5f9857b49813a5961e6eb1f45f419ece066a240dc2ff0c34f12dd0960ed8819"
+  },
+  {
+    "file": "wp58-requests/Utility/CaseInsensitiveDictionary.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Utility/CaseInsensitiveDictionary.php",
+    "bytes": 2043,
+    "sha256": "3b21d0052847ace03da2172da408066028fa4cc46b3809f4e5624c73ae92d2bd",
+    "github_blob_sha": "7eebeb7a7234e04cb47edacdeab3e7e181a8df73"
+  },
+  {
+    "file": "wp58-requests/Utility/FilteredIterator.php",
+    "url": "https://github.com/WordPress/WordPress/blob/5.8/wp-includes/Requests/Utility/FilteredIterator.php",
+    "bytes": 1267,
+    "sha256": "b78db803994161ba7494fa60783de335aaa933288be015f5fab12dca5e312647",
+    "github_blob_sha": "7c6c2c0238c29d0f2378398b0430f6f2bb26d002"
+  },
+  {
+    "file": "wp62-http/LICENSE.txt",
+    "url": "https://core.svn.wordpress.org/tags/6.2/license.txt",
+    "bytes": 19915,
+    "sha256": "6761690f0be02f7d970af3671fc03cfda18149c4128d0a0948f6d6e15abd28dc"
+  },
+  {
+    "file": "wp62-http/class-wp-http-proxy.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/class-wp-http-proxy.php",
+    "bytes": 5984,
+    "sha256": "bfddda04107de4ee632ad5d118add76bcba21ecb083084fbd468dbd1b4ec4227"
+  },
+  {
+    "file": "wp62-http/class-wp-http-requests-hooks.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/class-wp-http-requests-hooks.php",
+    "bytes": 2022,
+    "sha256": "79856866e8ea82fd98d825cf0405918974957eadecc3a68cd9fe42b924f9a9de"
+  },
+  {
+    "file": "wp62-http/class-wp-http.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/class-wp-http.php",
+    "bytes": 40359,
+    "sha256": "f31591c240587445bdb5dab31345596397dd9078aa87779bbb895d727b185bd3"
+  },
+  {
+    "file": "wp62-requests/Auth.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Auth.php",
+    "bytes": 860,
+    "sha256": "55ff2df53f03e60ec04f264ebb82d190e84867fdba28df4bd67d31921f895960"
+  },
+  {
+    "file": "wp62-requests/Auth/Basic.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Auth/Basic.php",
+    "bytes": 2541,
+    "sha256": "ab1c5a7a4ddb93747fbdf8d3bb50e93fa77a38762a22ed5226ca85e1fa8dfa54"
+  },
+  {
+    "file": "wp62-requests/Autoload.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Autoload.php",
+    "bytes": 9334,
+    "sha256": "d91e06fa7e8d7e45b257d7bceb8989488c1c5fd845eaa82e4f195e63d9776fda"
+  },
+  {
+    "file": "wp62-requests/Capability.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Capability.php",
+    "bytes": 657,
+    "sha256": "36522826ff490034ef90f6ce506496195314eff9b940c6425d183dd6bae4c4f8"
+  },
+  {
+    "file": "wp62-requests/Cookie.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Cookie.php",
+    "bytes": 14469,
+    "sha256": "46ddb05a6865710317d89e0a000186140790d19eb19af682bffe7e07cfe3715d"
+  },
+  {
+    "file": "wp62-requests/Cookie/Jar.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Cookie/Jar.php",
+    "bytes": 4174,
+    "sha256": "900ce012b38234e9c7196070cb8f7848e0b6727689e9c73c4d52e2ba1481f747"
+  },
+  {
+    "file": "wp62-requests/Exception.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Exception.php",
+    "bytes": 1114,
+    "sha256": "442a7f6f0c2f8b7b06149dc5f0aeba4eef946f84b7f2ad8907bb621d7d281066"
+  },
+  {
+    "file": "wp62-requests/Exception/ArgumentCount.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Exception/ArgumentCount.php",
+    "bytes": 1460,
+    "sha256": "a6632c1a12b579783b3b3abe7f0d45d79b3c295d139146faecdd35c6622709b4"
+  },
+  {
+    "file": "wp62-requests/Exception/InvalidArgument.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Exception/InvalidArgument.php",
+    "bytes": 1106,
+    "sha256": "e07fece0cd8cb70aaacb9f6aea251041cd5706a711122bf947c24242d780da3b"
+  },
+  {
+    "file": "wp62-requests/HookManager.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/HookManager.php",
+    "bytes": 709,
+    "sha256": "4b09da68b4f523dd9d36f047117e0c1fd442c6aebc8e4cc3632e5ac1a04ff317"
+  },
+  {
+    "file": "wp62-requests/Hooks.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Hooks.php",
+    "bytes": 2922,
+    "sha256": "2bb6087cb4a761715544898125471682f90033a17a9bfbd6420fef3a44c9911e"
+  },
+  {
+    "file": "wp62-requests/IdnaEncoder.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/IdnaEncoder.php",
+    "bytes": 12364,
+    "sha256": "4769f0540431ae6a86af71bf5289559728d6a936f367b7ca23acead2de37ae9a"
+  },
+  {
+    "file": "wp62-requests/Ipv6.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Ipv6.php",
+    "bytes": 5639,
+    "sha256": "65c4713e71e21b36109fc8d50aceaac68dfc1e7abbad72e96dccb69fb82c5725"
+  },
+  {
+    "file": "wp62-requests/Iri.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Iri.php",
+    "bytes": 29037,
+    "sha256": "b4b6c63147f2ebd47b2e37ef939099b18e82bbc3ea9dd3ae3bda699aabee5261"
+  },
+  {
+    "file": "wp62-requests/LICENSE",
+    "url": "https://raw.githubusercontent.com/WordPress/Requests/v2.0.5/LICENSE",
+    "bytes": 2359,
+    "sha256": "c08c66f8037c23f20614b58c0cbab6bbacef833dfa9c6a3a00ad3dc3344c2040"
+  },
+  {
+    "file": "wp62-requests/Port.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Port.php",
+    "bytes": 1505,
+    "sha256": "eab02dc614d84eb8e874ec743d1ede48cbac7df8f7841b664f6e97995e8d883c"
+  },
+  {
+    "file": "wp62-requests/Proxy.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Proxy.php",
+    "bytes": 867,
+    "sha256": "251c12ecb0eccb1ae9b3f54a7b7a568401704c94ce05a8a1ac0443b5c71dfed0"
+  },
+  {
+    "file": "wp62-requests/Proxy/Http.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Proxy/Http.php",
+    "bytes": 4217,
+    "sha256": "4219fb6f79e9bf6cb6ccad40140ca7e58fe7929284a5f32f6a6e49967c8e6ec2"
+  },
+  {
+    "file": "wp62-requests/Requests.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Requests.php",
+    "bytes": 33969,
+    "sha256": "faa0293de2d8b218905d1c830ba142197968a89202910641688d1ed8f657202e"
+  },
+  {
+    "file": "wp62-requests/Response.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Response.php",
+    "bytes": 4241,
+    "sha256": "9c415c56c9fcfe999192e94bc9040a82a3b2b98261c804686ac638857657001d"
+  },
+  {
+    "file": "wp62-requests/Response/Headers.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Response/Headers.php",
+    "bytes": 3003,
+    "sha256": "afd92c6ae08a25ec5962c2cce7d1e0617d78292ba3fc25d5be4d7c9221f0f354"
+  },
+  {
+    "file": "wp62-requests/Ssl.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Ssl.php",
+    "bytes": 5425,
+    "sha256": "d9a3dc1bdde30ec56cdeeddfcd685f29b75ef496f1a9669a800ccfb1d2fd1202"
+  },
+  {
+    "file": "wp62-requests/Transport.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Transport.php",
+    "bytes": 1544,
+    "sha256": "ca39e25d43c50f81514d2f441f492e3fa412f932c587ba579eb5d95d91f3096b"
+  },
+  {
+    "file": "wp62-requests/Transport/Curl.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Transport/Curl.php",
+    "bytes": 19509,
+    "sha256": "8acd918d6dfd0129788f17fbe948185108e0996ae74812d1afd506d564f0c8a2"
+  },
+  {
+    "file": "wp62-requests/Transport/Fsockopen.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Transport/Fsockopen.php",
+    "bytes": 15336,
+    "sha256": "e00153229523b06c2dda47da0f27230da30ed04677ed9561520bf9a16aeffff8"
+  },
+  {
+    "file": "wp62-requests/Utility/CaseInsensitiveDictionary.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Utility/CaseInsensitiveDictionary.php",
+    "bytes": 2476,
+    "sha256": "e2bd99ab8d6a0c28d72c5dd3bbb38e5917db970564e55f816a46e0eab5aef55c"
+  },
+  {
+    "file": "wp62-requests/Utility/InputValidator.php",
+    "url": "https://core.svn.wordpress.org/tags/6.2/wp-includes/Requests/src/Utility/InputValidator.php",
+    "bytes": 2512,
+    "sha256": "ddbe22b3f5ed77f3dd522cac31404298cee44a61b9acc30d449c1edd0577c4e1"
+  }
+]

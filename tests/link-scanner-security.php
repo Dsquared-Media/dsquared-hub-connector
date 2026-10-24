@@ -25,7 +25,7 @@ function is_404() { return true; }
 function wp_unslash( $value ) { return $value; }
 function current_user_can( $capability ) { return $GLOBALS['can_manage']; }
 function wp_verify_nonce( $nonce, $action ) { return $nonce === 'offline-nonce'; }
-class WP_Error { public $code; function __construct( $code = '', ...$args ) { $this->code = $code; } }
+class WP_Error { public $code; public $message; function __construct( $code = '', $message = '' ) { $this->code = $code; $this->message = $message; } function get_error_code() { return $this->code; } function get_error_message() { return $this->message; } }
 function is_wp_error( $value ) { return $value instanceof WP_Error; }
 class WP_REST_Response { public $data; function __construct( $data, $status = 200 ) { $this->data = $data; } }
 class Request { private $nonce; function __construct( $nonce ) { $this->nonce = $nonce; } function get_header( $name ) { return $this->nonce; } }
@@ -67,7 +67,7 @@ function fixture_http( $method, $url, $args, $safe ) {
     // Execute the actual supported old-core policy, with all DNS/HTTP inert.
     $remaining = $args['redirection'];
     do {
-        if ( $safe && ! DHC_WP58_Policy\wp_http_validate_url( $url ) ) return new WP_Error( 'unsafe-url' );
+        if ( true === $safe && ! DHC_WP58_Policy\wp_http_validate_url( $url ) ) return new WP_Error( 'unsafe-url' );
         $GLOBALS['hops'][] = array( $method, $url, $safe );
         $response = $GLOBALS['responses'][$method . ' ' . $url] ?? new WP_Error( 'unconfigured-fixture' );
         if ( is_wp_error( $response ) ) return $response;
@@ -87,6 +87,11 @@ function wp_remote_head( $url, $args ) { return fixture_http( 'HEAD', $url, $arg
 function wp_remote_get( $url, $args ) { return fixture_http( 'GET', $url, $args, false ); }
 require $root . '/includes/modules/class-dhc-link-scanner.php';
 class Offline_Link_Scanner extends DHC_Link_Scanner {
+    protected static function requests_iri_class() { return $GLOBALS['fixture_iri_class']; }
+    protected static function fetch_approved( $admission, $method, $args ) {
+        $GLOBALS['admissions'][] = $admission;
+        return fixture_http( $method, $admission['url'], $args, 'admitted' );
+    }
     protected static function resolve_host_addresses( $host ) {
         if ( ! array_key_exists( $host, $GLOBALS['dns_addresses'] ) ) throw new RuntimeException( 'Unconfigured synthetic DNS: ' . $host );
         return $GLOBALS['dns_addresses'][$host];
@@ -135,9 +140,9 @@ if ( in_array( '--baseline', $argv, true ) ) {
     exit;
 }
 foreach ( $operations as $op ) {
-    check( $op['safe'], 'both HEAD and GET fallback use the native safe HTTP boundary' );
+    check( 'admitted' === $op['safe'], 'both HEAD and GET fallback use the immutable-admission transport boundary' );
     check( $op['args']['sslverify'] === true && $op['args']['timeout'] === 10 && $op['args']['redirection'] === 0, 'TLS and existing timeout remain enabled while native automatic redirects are disabled' );
-    check( $op['args']['limit_response_size'] === 1024, 'status-only checks cap transport bytes; this is not an expanded-body guarantee' );
+    check( $op['args']['limit_response_size'] === 1024, 'status-only scanner requests a bounded retained response; this is not a transferred-byte guarantee' );
     check( ! isset( $op['args']['headers'] ) && ! isset( $op['args']['cookies'] ), 'scanner adds no credentials to arbitrary destinations' );
 }
 foreach ( array( 'ok', 'head405', 'redirect-ok' ) as $name ) check( ! isset( $by_url[$urls[$name]] ), 'successful public and safe redirected/fallback links remain unbroken' );
@@ -145,7 +150,7 @@ check( $by_url[$urls['missing']] === 2, 'one missing URL is still attributed to 
 foreach ( array( 'denied', 'head501', 'offline', 'get-offline', 'redirect-denied', 'get-redirect-denied' ) as $name ) check( $by_url[$urls[$name]] === 1, 'denied, failing, and unsuccessful fallback links retain status results' );
 foreach ( $broken as $row ) {
     check( is_int( $row['status'] ) && ! array_key_exists( 'body', $row ), 'persisted scanner output remains status-only' );
-    if ( in_array( $row['url'], array( $urls['denied'], $urls['redirect-denied'], $urls['get-redirect-denied'] ), true ) ) check( $row['status'] === 0, 'native safety rejection maps to the existing unavailable status' );
+    if ( in_array( $row['url'], array( $urls['denied'], $urls['redirect-denied'], $urls['get-redirect-denied'] ), true ) ) check( $row['status'] === 0, 'unsafe admission maps to the existing unavailable status' );
 }
 check( strpos( json_encode( $broken ), 'fixture body' ) === false, 'response bodies never enter saved findings' );
 foreach ( array( 'ok', 'missing' ) as $name ) check( count( array_filter( $operations, function ( $op ) use ( $urls, $name ) { return $op['url'] === $urls[$name]; } ) ) === 1, 'deduplication still avoids repeated network operations' );
@@ -193,7 +198,7 @@ $start = 'http://8.8.8.8/start';
 foreach ( array( 301, 302, 303, 307, 308 ) as $status ) {
     check( scan_url( $start, array( 'HEAD ' . $start => array( 'status' => $status, 'location' => 'http://169.254.169.254/redirected' ) ) ) === 0 && count( $operations ) === 1, 'each redirect status is rechecked before following a link-local destination' );
 }
-check( scan_url( $start, array( 'HEAD ' . $start => array( 'status' => 405 ), 'GET ' . $start => array( 'status' => 307, 'location' => 'http://100.100.100.200/redirected' ) ) ) === 0 && count( $operations ) === 2, 'HEAD405 -> GET -> shared-address redirect is rejected under the exact old-core policy' );
+check( scan_url( $start, array( 'HEAD ' . $start => array( 'status' => 405 ), 'GET ' . $start => array( 'status' => 307, 'location' => 'http://100.100.100.200/redirected' ) ) ) === 0 && count( $operations ) === 2, 'HEAD405 -> GET -> shared-address redirect is rejected before an admitted connection' );
 foreach ( array( '/target', '//1.1.1.1/target', '../target', '//1.1.1.1', '?0', '?q=test', './target', '.././target' ) as $location ) {
     $target = $fixture_iri_class::absolutize( $start, $location )->uri;
     check( scan_url( $start, array( 'HEAD ' . $start => array( 'status' => 301, 'location' => $location ), 'HEAD ' . $target => array( 'status' => 200 ) ) ) === 200 && count( $operations ) === 2, 'native IRI preserves public path/query/authority redirect semantics: ' . $location );
@@ -212,6 +217,11 @@ check( scan_url( 'http://changing.example.test/', array( 'HEAD http://changing.e
 
 // Exercise the actual production CNAME resolver with only inert DNS records.
 class Offline_Record_Link_Scanner extends DHC_Link_Scanner {
+    protected static function requests_iri_class() { return $GLOBALS['fixture_iri_class']; }
+    protected static function fetch_approved( $admission, $method, $args ) {
+        $GLOBALS['admissions'][] = $admission;
+        return fixture_http( $method, $admission['url'], $args, 'admitted' );
+    }
     protected static function query_host_records( $host ) {
         $GLOBALS['record_queries'][] = $host;
         if ( ! array_key_exists( $host, $GLOBALS['record_answers'] ) ) throw new RuntimeException( 'Unconfigured DNS records: ' . $host );
@@ -221,8 +231,6 @@ class Offline_Record_Link_Scanner extends DHC_Link_Scanner {
 function scan_records( $answers ) {
     $GLOBALS['record_answers'] = $answers;
     $GLOBALS['record_queries'] = array();
-    // The native validator's separate OS lookup is an inert collaborator.
-    $GLOBALS['dns_addresses']['alias.example.test'] = array( '8.8.8.8' );
     return scan_url( 'https://alias.example.test/', array(), 'Offline_Record_Link_Scanner' );
 }
 $public_records = array( array( 'type' => 'A', 'ip' => '8.8.8.8' ), array( 'type' => 'AAAA', 'ipv6' => '2001:4860:4860::8888' ) );
@@ -243,4 +251,17 @@ check( scan_records( $long_chain ) === 0 && count( $operations ) === 0 && count(
 $long_chain['step7.example.test'] = $public_records;
 check( scan_records( $long_chain ) === 200 && count( $record_queries ) === 8, 'public alias chain at the documented ceiling still works' );
 
+$dns_addresses['aaaa.example.test'] = array( '2001:4860:4860::8888' );
+check( scan_url( 'https://aaaa.example.test/' ) === 200 && count( $operations ) === 1, 'AAAA-only DNS hostname retains a usable immutable admission' );
+$literal = $fixture_iri_class::absolutize( 'http://[2001:4860:4860::8888]/', '/' )->uri;
+check( scan_url( $literal ) === 200 && count( $operations ) === 1, 'public IPv6 literal is not rejected by the old core IPv4-only safe validator' );
+$last_admission = end( $admissions );
+check( $last_admission['host'] === parse_url( $literal, PHP_URL_HOST ) && $last_admission['addresses'] === array( trim( parse_url( $literal, PHP_URL_HOST ), '[]' ) ), 'native-normalized logical IPv6 host and admitted numeric address are both retained' );
+$unavailable = 'http://8.8.8.8/unavailable';
+$fixed_error = 'The selected transport cannot enforce the connection policy.';
+check( scan_url( $unavailable, array( 'HEAD ' . $unavailable => new WP_Error( 'dhc_scan_transport', $fixed_error ) ) ) === 0, 'unsupported transport remains unavailable rather than inventing an HTTP status' );
+check( DHC_Link_Scanner::get_broken_links()[0]['error'] === $fixed_error, 'fixed capability error survives saved results and the existing result reader' );
+check( scan_url( $unavailable, array( 'HEAD ' . $unavailable => new WP_Error( 'socket_error', 'synthetic-private-proxy-details' ) ) ) === 0, 'unknown transport errors still record an unavailable link' );
+check( DHC_Link_Scanner::get_broken_links()[0]['error'] === 'The request could not be completed.', 'native socket details are not copied to stored findings' );
+check( scan_url( $unavailable, array( 'HEAD ' . $unavailable => array( 'status' => 404 ) ) ) === 404 && DHC_Link_Scanner::get_broken_links()[0]['error'] === '', 'a later ordinary missing link does not inherit the previous transport failure' );
 echo "PASS: $checks offline link-scanner checks ($iri_variant IRI)\n";

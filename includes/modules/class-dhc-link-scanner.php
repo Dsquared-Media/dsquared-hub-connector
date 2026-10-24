@@ -37,6 +37,8 @@ class DHC_Link_Scanner {
     const OPT_REDIRECTS    = 'dhc_redirects';      // [{id, from, to, status, hits, created_at}]
     const MAX_REDIRECTS    = 1000;
 
+    private static $last_request_error = '';
+
     public static function init() {
         // Early priority — run BEFORE WP decides this is a 404 so we can
         // intercept matching paths and issue the redirect ourselves.
@@ -255,6 +257,7 @@ class DHC_Link_Scanner {
                     'status'       => $status,
                     'broken'       => $is_broken,
                     'last_checked' => current_time( 'mysql' ),
+                    'error'        => self::$last_request_error,
                 );
                 if ( $is_broken ) {
                     $broken[] = array_merge( $checked_urls[ $url ], array(
@@ -295,6 +298,7 @@ class DHC_Link_Scanner {
 
     /** HEAD-ping a URL, fallback to GET if HEAD returns 405. Returns numeric status code or 0 on connect failure. */
     private static function check_url( $url ) {
+        self::$last_request_error = '';
         $code = static::request_status( $url, 'HEAD' );
         // Some servers reject HEAD with 405 / 501 — retry with GET
         if ( $code === 405 || $code === 501 ) {
@@ -306,7 +310,9 @@ class DHC_Link_Scanner {
     /** Recheck every redirect ourselves: supported older WP validators are weaker. */
     private static function request_status( $url, $method ) {
         for ( $redirects = 0; $redirects <= 5; $redirects++ ) {
-            if ( ! static::is_public_url( $url ) ) return 0;
+            $admission = static::admit_url( $url );
+            if ( false === $admission ) return 0;
+            $url = $admission['url'];
             $args = array(
                 'timeout'     => self::SCAN_TIMEOUT,
                 'redirection' => 0,
@@ -314,8 +320,12 @@ class DHC_Link_Scanner {
                 'limit_response_size' => 1024,
                 'user-agent'  => 'DsquaredHubBot/1.0 (+https://hub.dsquaredmedia.net)',
             );
-            $res = 'HEAD' === $method ? wp_safe_remote_head( $url, $args ) : wp_safe_remote_get( $url, $args );
-            if ( is_wp_error( $res ) ) return 0;
+            $res = static::fetch_approved( $admission, $method, $args );
+            if ( is_wp_error( $res ) ) {
+                self::$last_request_error = 0 === strpos( $res->get_error_code(), 'dhc_scan_' )
+                    ? $res->get_error_message() : 'The request could not be completed.';
+                return 0;
+            }
             $code = (int) wp_remote_retrieve_response_code( $res );
             if ( ! in_array( $code, array( 300, 301, 302, 303, 307, 308 ), true ) ) return $code;
             $location = wp_remote_retrieve_header( $res, 'location' );
@@ -324,53 +334,75 @@ class DHC_Link_Scanner {
                 || preg_match( '/[\x00-\x20\x7f\\\\]/', $location ) ) return 0;
             $parts = parse_url( $location );
             if ( false === $parts || isset( $parts['user'] ) || isset( $parts['pass'] ) ) return 0;
-            // Use the same IRI resolution as native Requests on each supported
-            // WordPress generation, including host-only and query-only targets.
-            $iri_class = class_exists( 'WpOrg\\Requests\\Iri' ) ? 'WpOrg\\Requests\\Iri' : 'Requests_IRI';
-            if ( ! class_exists( $iri_class ) ) return 0;
             try {
+                $iri_class = static::requests_iri_class();
+                if ( false === $iri_class ) return 0;
                 $absolute = $iri_class::absolutize( $url, $location );
                 if ( false === $absolute || ! is_string( $absolute->uri ) ) return 0;
                 $url = $absolute->uri;
-            } catch ( Throwable $error ) {
-                return 0;
-            }
+            } catch ( \Throwable $error ) { return 0; }
             // Match the supported WordPress/Requests redirect method behavior.
             if ( 302 === $code || 303 === $code ) $method = 'GET';
         }
         return 0;
     }
 
-    /**
-     * Scanner-local admission policy, independent of WP's same-home exceptions.
-     * DNS is a preflight only: the native HTTP transport resolves again. This
-     * does not pin an address or close DNS rebinding/proxy-resolution races.
-     */
-    private static function is_public_url( $url ) {
+    /** The origin hostname is never resolved after this immutable admission result. */
+    private static function admit_url( $url ) {
         if ( ! is_string( $url ) || '' === $url || preg_match( '/[\x00-\x20\x7f\\\\]/', $url ) ) return false;
+        $iri_class = static::requests_iri_class();
+        if ( false === $iri_class ) {
+            self::$last_request_error = 'The WordPress HTTP connection policy is unavailable. The link was not requested.';
+            return false;
+        }
         $parts = parse_url( $url );
         if ( false === $parts || empty( $parts['host'] ) || empty( $parts['scheme'] )
             || ! in_array( strtolower( $parts['scheme'] ), array( 'http', 'https' ), true )
             || isset( $parts['user'] ) || isset( $parts['pass'] )
             || ( isset( $parts['port'] ) && ! in_array( $parts['port'], array( 80, 443, 8080 ), true ) ) ) return false;
-
         $host = strtolower( $parts['host'] );
         if ( '[' === $host[0] && ']' === substr( $host, -1 ) ) {
             $address = substr( $host, 1, -1 );
-            return filter_var( $address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) && self::is_public_address( $address );
+            if ( ! filter_var( $address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) return false;
+            $addresses = array( $address );
+        } elseif ( filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ) {
+            $addresses = array( $host );
+        } else {
+            if ( preg_match( '/\A(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+))*\.?\z/i', $host ) ) return false;
+            $name = rtrim( $host, '.' );
+            if ( ! self::is_dns_hostname( $name ) ) return false;
+            $addresses = static::resolve_host_addresses( $name );
         }
-        if ( filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ) return self::is_public_address( $host );
-        // Reject abbreviated, integer, octal, hex and encoded IP spellings.
-        // Do not let a resolver/transport reinterpret these as a different host.
-        if ( preg_match( '/\A(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+))*\.?\z/i', $host ) ) return false;
-        $host = rtrim( $host, '.' );
-        if ( ! self::is_dns_hostname( $host ) ) return false;
-        $addresses = static::resolve_host_addresses( $host );
         if ( ! is_array( $addresses ) || empty( $addresses ) ) return false;
-        foreach ( $addresses as $address ) {
-            if ( ! self::is_public_address( $address ) ) return false;
-        }
-        return true;
+        foreach ( $addresses as $address ) if ( ! self::is_public_address( $address ) ) return false;
+        try {
+            $iri = new $iri_class( $url );
+            $url = $iri->uri;
+            $normalized = parse_url( $url );
+            // Normalization may encode paths, but must not change the admitted origin.
+            if ( strtolower( $normalized['host'] ?? '' ) !== $host
+                && ( '[' !== $host[0] || inet_pton( trim( $normalized['host'] ?? '', '[]' ) ) !== inet_pton( trim( $host, '[]' ) ) ) ) return false;
+        } catch ( \Throwable $error ) { return false; }
+        $scheme = strtolower( $parts['scheme'] );
+        return array( 'url' => $url, 'host' => $normalized['host'], 'scheme' => $scheme,
+            'port' => $parts['port'] ?? ( 'https' === $scheme ? 443 : 80 ),
+            'addresses' => array_values( array_unique( $addresses ) ) );
+    }
+
+    /** Protected only for inert end-to-end scanner fixtures. */
+    protected static function fetch_approved( $admission, $method, $args ) {
+        if ( false === static::requests_iri_class() ) return new \WP_Error( 'dhc_scan_runtime', 'The WordPress HTTP connection policy is unavailable. The link was not requested.' );
+        return \DHC\Scanner\Http::request( $admission, $method, $args );
+    }
+
+    /** Use the exact Requests family behind WordPress's installed hook bridge. */
+    protected static function requests_iri_class() {
+        try {
+            if ( ! class_exists( 'WP_Http' ) ) return false;
+            require_once dirname( __DIR__ ) . '/class-dhc-scanner-http.php';
+            return class_exists( '\DHC\Scanner\Http', false ) && class_exists( '\DHC\Scanner\NativeIri', false )
+                ? '\DHC\Scanner\NativeIri' : false;
+        } catch ( \Throwable $error ) { return false; }
     }
 
     private static function is_dns_hostname( $host ) {
@@ -539,7 +571,7 @@ class DHC_Link_Scanner {
                                 <?php foreach ( $broken as $b ) : ?>
                                     <tr>
                                         <td style="word-break:break-all;"><a href="<?php echo esc_url( $b['url'] ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $b['url'] ); ?></a></td>
-                                        <td><strong style="color:#dc2626;"><?php echo esc_html( $b['status'] ? $b['status'] : 'no response' ); ?></strong></td>
+                                        <td><strong style="color:#dc2626;"><?php echo esc_html( $b['status'] ? $b['status'] : 'no response' ); ?></strong><?php if ( ! empty( $b['error'] ) ) : ?><br><small><?php echo esc_html( $b['error'] ); ?></small><?php endif; ?></td>
                                         <td><a href="<?php echo esc_url( get_edit_post_link( $b['source_post_id'] ) ); ?>"><?php echo esc_html( $b['source_title'] ?? '—' ); ?></a></td>
                                         <td style="color:#64748b;"><?php echo esc_html( $b['last_checked'] ?? '' ); ?></td>
                                     </tr>

@@ -185,6 +185,14 @@ dsquared-hub-connector/
 
 ## Requirements
 
+### Link scanner connection compatibility
+
+The link scanner admits public destinations before each request and binds the connection to those numeric addresses. HTTPS still verifies the original hostname or IP certificate identity. The scanner uses WordPress's selected cURL or streams transport and its proxy/bypass policy; unsupported connection capabilities are recorded as unavailable, with no unchecked hostname retry.
+
+cURL requires working `CURLOPT_CONNECT_TO` support (libcurl 7.49+). Configured proxies must allow numeric CONNECT, including plain HTTP links. On PHP below 8.3, streams cannot verify HTTPS IPv6-literal certificate identities, so that specific case returns `dhc_scan_ipv6_tls_unsupported` before opening a socket. Hostnames resolving to IPv6, HTTP IPv6 literals, cURL and capable newer streams remain supported. The plugin's minimum versions below are unchanged.
+
+The status-only scanner retains at most 1,024 response body bytes on cURL; this is not a limit on total transferred bytes. Timeout controls and bounded redirects remain in place. Test details are in `tests/fixtures/README.md`.
+
 - WordPress 5.8 or higher
 - PHP 7.4 or higher
 - Active Dsquared Media Hub subscription

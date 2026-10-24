@@ -1,0 +1,9 @@
+The `wp58-*` and `wp62-*` directories contain unmodified official WordPress 5.8/6.2 and Requests 1.8.1/2.0.5 sources used only by tests. `transport-sources.json` and `iri-sources.json` retain official URLs and hashes. Original upstream license bytes, including their line endings, are preserved. Production loads the site's own WordPress libraries. Both release and review ZIP workflows exclude tests.
+
+`scanner-transport-security.php --wp=wp58|wp62 --temp=/absolute/disposable/path` needs PHP with curl and openssl, Python3 at `/usr/bin/python3`, and localhost binding permission. It generates disposable TLS files, cleans them up and stops its own local server. It does not install dependencies or contact client/provider endpoints.
+
+The native Requests transports and TLS/proxy handshakes are real. The fixture intercepts approved numeric destination arguments and routes them to local listeners. Thus it checks numeric IPv6 syntax and certificate identity over IPv4 loopback; it does not establish native IPv6 routing or fleet compatibility. Both Requests families are exercised separately, with aliases scoped to the connector rather than global WordPress names.
+
+`--legacy-progress` exercises the older PHP progress-callback binding on a newer local runtime. `--legacy-ipv6-tls` checks the explicit PHP-before-8.3 streams limitation for HTTPS IPv6 literals, including the distinct error and zero socket/origin traffic. These are modeled controls, not substitutes for the hosted PHP7.4/8.3 jobs. Original upstream deprecation notices on newer local PHP are excluded from this native fixture's error reporting; upstream files remain unchanged.
+
+`link-scanner-security.php` uses inert HTTP/DNS and exact native IRI parsers to cover admission, redirects, fallback, result attribution and error persistence. It does not establish destination binding alone. The separate native transport suite exercises that boundary.
